@@ -7,8 +7,6 @@ data/
 /minicore
 /minicloud
 
-# 文档不提交
-*.md
+# 文档不提交，根目录 README.md 提交
 /docs/
-/tests/baselines/
 /tests/real-device/
