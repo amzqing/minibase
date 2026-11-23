@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"minicloud/internal/config"
-	"minicloud/internal/database"
+	"minibase/internal/config"
+	"minibase/internal/database"
 )
 
 // Store 对象存储接口。将来接 S3 只需换实现，应用代码不用改。

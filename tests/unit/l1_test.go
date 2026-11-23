@@ -19,15 +19,15 @@ import (
 	"testing"
 	"time"
 
-	"minicloud/internal/api"
-	"minicloud/internal/auth"
-	"minicloud/internal/config"
-	"minicloud/internal/crypto"
-	"minicloud/internal/database"
-	"minicloud/internal/deploy"
-	"minicloud/internal/proxy"
-	"minicloud/internal/resource"
-	"minicloud/internal/runtime"
+	"minibase/internal/api"
+	"minibase/internal/auth"
+	"minibase/internal/config"
+	"minibase/internal/crypto"
+	"minibase/internal/database"
+	"minibase/internal/deploy"
+	"minibase/internal/proxy"
+	"minibase/internal/resource"
+	"minibase/internal/runtime"
 )
 
 const testToken = "unit-test-token"
@@ -104,7 +104,7 @@ func (e *testEnv) deploy(t *testing.T, zipPath, app, project, mode string) (int,
 
 func multipartWriter(buf *bytes.Buffer, zipPath, app, project, mode string) string {
 	// 避免依赖 mime/multipart 的复杂签名，这里手写一个最小 multipart。
-	boundary := "minicloud-test-boundary"
+	boundary := "minibase-test-boundary"
 	f, err := os.Open(zipPath)
 	if err != nil {
 		panic(err)
@@ -561,8 +561,8 @@ func TestL1_15_CLIHttpClient(t *testing.T) {
 	}))
 	defer fakeAPI.Close()
 
-	bin := filepath.Join(t.TempDir(), "minicloud")
-	build := exec.Command("go", "build", "-o", bin, "./cmd/minicloud")
+	bin := filepath.Join(t.TempDir(), "minibase")
+	build := exec.Command("go", "build", "-o", bin, "./cmd/minibase")
 	build.Dir = "../.."
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("编译 CLI 失败: %v %s", err, out)
@@ -574,7 +574,7 @@ func TestL1_15_CLIHttpClient(t *testing.T) {
 		{"logs", "shop", "-server", fakeAPI.URL},
 	} {
 		cmd := exec.Command(bin, args...)
-		cmd.Env = append(os.Environ(), "MINICLOUD_TOKEN="+testToken)
+		cmd.Env = append(os.Environ(), "MINIBASE_TOKEN="+testToken)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("CLI %v 失败: %v %s", args, err, out)
 		}

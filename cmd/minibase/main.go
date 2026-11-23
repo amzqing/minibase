@@ -1,4 +1,4 @@
-// minicloud 是 HTTP API 的命令行客户端，本身不含业务逻辑。
+// minibase 是 HTTP API 的命令行客户端，本身不含业务逻辑。
 package main
 
 import (
@@ -26,8 +26,8 @@ func main() {
 	args := os.Args[2:]
 
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
-	server := fs.String("server", envOr("MINICLOUD_SERVER", "http://127.0.0.1:8080"), "Core 地址")
-	token := fs.String("token", os.Getenv("MINICLOUD_TOKEN"), "管理员 Token")
+	server := fs.String("server", envOr("MINIBASE_SERVER", "http://127.0.0.1:8080"), "Core 地址")
+	token := fs.String("token", os.Getenv("MINIBASE_TOKEN"), "管理员 Token")
 	app := fs.String("app", "", "应用名")
 	project := fs.String("project", "", "项目 ID")
 	mode := fs.String("mode", "b", "依赖模式：a=完整包，b=代码包")
@@ -35,32 +35,32 @@ func main() {
 	_ = fs.Parse(normalizeArgs(args))
 
 	if *token == "" {
-		fmt.Fprintln(os.Stderr, "错误：请设置环境变量 MINICLOUD_TOKEN 或用 -token 指定")
+		fmt.Fprintln(os.Stderr, "错误：请设置环境变量 MINIBASE_TOKEN 或用 -token 指定")
 		os.Exit(2)
 	}
 
 	switch cmd {
 	case "deploy":
 		if fs.NArg() < 1 {
-			fmt.Fprintln(os.Stderr, "用法: minicloud deploy <zip> [-app 名] [-project ID] [-mode a|b]")
+			fmt.Fprintln(os.Stderr, "用法: minibase deploy <zip> [-app 名] [-project ID] [-mode a|b]")
 			os.Exit(2)
 		}
 		deployCmd(*server, *token, fs.Arg(0), *app, *project, *mode)
 	case "status":
 		if fs.NArg() < 1 {
-			fmt.Fprintln(os.Stderr, "用法: minicloud status <应用名>")
+			fmt.Fprintln(os.Stderr, "用法: minibase status <应用名>")
 			os.Exit(2)
 		}
 		getCmd(*server, *token, "/api/status/"+fs.Arg(0))
 	case "logs":
 		if fs.NArg() < 1 {
-			fmt.Fprintln(os.Stderr, "用法: minicloud logs <应用名>")
+			fmt.Fprintln(os.Stderr, "用法: minibase logs <应用名>")
 			os.Exit(2)
 		}
 		getCmd(*server, *token, "/api/logs/"+fs.Arg(0))
 	case "rollback":
 		if fs.NArg() < 1 {
-			fmt.Fprintln(os.Stderr, "用法: minicloud rollback <项目ID>/<应用名>")
+			fmt.Fprintln(os.Stderr, "用法: minibase rollback <项目ID>/<应用名>")
 			os.Exit(2)
 		}
 		parts := strings.SplitN(fs.Arg(0), "/", 2)
@@ -72,20 +72,20 @@ func main() {
 	case "data":
 		// data <项目ID> <表名> <get|post|put|del> [ID] [JSON]
 		if fs.NArg() < 3 {
-			fmt.Fprintln(os.Stderr, "用法: minicloud data <项目ID> <表名> <get|post|put|del> [ID] [JSON]")
+			fmt.Fprintln(os.Stderr, "用法: minibase data <项目ID> <表名> <get|post|put|del> [ID] [JSON]")
 			os.Exit(2)
 		}
 		handleDataCmd(*server, *token, fs.Args())
 	case "env":
 		// env set <项目ID>/<应用名> KEY=VALUE ... / env list <项目ID>/<应用名>
 		if fs.NArg() < 2 {
-			fmt.Fprintln(os.Stderr, "用法: minicloud env set <项目ID>/<应用名> KEY=VALUE... | env list <项目ID>/<应用名>")
+			fmt.Fprintln(os.Stderr, "用法: minibase env set <项目ID>/<应用名> KEY=VALUE... | env list <项目ID>/<应用名>")
 			os.Exit(2)
 		}
 		handleEnvCmd(*server, *token, fs.Args(), *secretFlag)
 	case "down":
 		if fs.NArg() < 1 {
-			fmt.Fprintln(os.Stderr, "用法: minicloud down <项目ID>/<应用名>")
+			fmt.Fprintln(os.Stderr, "用法: minibase down <项目ID>/<应用名>")
 			os.Exit(2)
 		}
 		parts := strings.SplitN(fs.Arg(0), "/", 2)
@@ -98,7 +98,7 @@ func main() {
 	case "storage":
 		// storage <upload|download|list|delete> <项目ID> <应用名> [文件路径|文件ID]
 		if fs.NArg() < 3 {
-			fmt.Fprintln(os.Stderr, "用法: minicloud storage <upload|download|list|delete> <项目ID> <应用名> [路径或ID]")
+			fmt.Fprintln(os.Stderr, "用法: minibase storage <upload|download|list|delete> <项目ID> <应用名> [路径或ID]")
 			os.Exit(2)
 		}
 		handleStorageCmd(*server, *token, fs.Args())
@@ -136,9 +136,9 @@ func envOr(key, fallback string) string {
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `用法:
-  minicloud deploy <zip> [-app 名] [-project ID] [-mode a|b]
-  minicloud status <应用名>
-  minicloud logs <应用名>`)
+  minibase deploy <zip> [-app 名] [-project ID] [-mode a|b]
+  minibase status <应用名>
+  minibase logs <应用名>`)
 }
 
 func do(req *http.Request, token string) []byte {

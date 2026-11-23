@@ -1,10 +1,10 @@
 #!/bin/sh
-# MiniCloud 本机一键部署：编译 → 上传 → 目标机一键安装。
+# MiniBase 本机一键部署：编译 → 上传 → 目标机一键安装。
 # 用法: ./scripts/deploy.sh root@服务器IP [--token TOKEN] [--listen :8080] [--arch amd64]
 set -eu
 
 TARGET="${1:-}"
-SSH_OPTS="${MINICLOUD_SSH_OPTS:-}"
+SSH_OPTS="${MINIBASE_SSH_OPTS:-}"
 if [ -z "$TARGET" ] || [ "$TARGET" = "-h" ]; then
   echo "用法: $0 root@服务器IP [--token TOKEN] [--listen :8080] [--arch amd64]" >&2
   exit 2
@@ -40,17 +40,17 @@ echo "  架构: $ARCH"
 
 echo "[2/4] 交叉编译"
 (cd "$ROOT_DIR" && GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 go build -o "$BUILD_DIR/minicore" ./cmd/minicore)
-(cd "$ROOT_DIR" && GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 go build -o "$BUILD_DIR/minicloud" ./cmd/minicloud)
+(cd "$ROOT_DIR" && GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 go build -o "$BUILD_DIR/minibase" ./cmd/minibase)
 
 echo "[3/4] 上传安装文件"
-REMOTE_DIR="/tmp/minicloud-install-$$"
+REMOTE_DIR="/tmp/minibase-install-$$"
 ssh $SSH_OPTS "$TARGET" "mkdir -p $REMOTE_DIR"
-scp -q $SSH_OPTS "$BUILD_DIR/minicore" "$BUILD_DIR/minicloud" \
+scp -q $SSH_OPTS "$BUILD_DIR/minicore" "$BUILD_DIR/minibase" \
     "$ROOT_DIR/scripts/install.sh" "$ROOT_DIR/deployments/systemd/minicore.service" \
     "$TARGET:$REMOTE_DIR/"
 
 echo "[4/4] 目标机安装"
-REMOTE_CMD="$REMOTE_DIR/install.sh --binary $REMOTE_DIR/minicore --cli-binary $REMOTE_DIR/minicloud"
+REMOTE_CMD="$REMOTE_DIR/install.sh --binary $REMOTE_DIR/minicore --cli-binary $REMOTE_DIR/minibase"
 [ -n "$TOKEN" ] && REMOTE_CMD="$REMOTE_CMD --token $TOKEN"
 [ -n "$LISTEN" ] && REMOTE_CMD="$REMOTE_CMD --listen $LISTEN"
 ssh $SSH_OPTS "$TARGET" "chmod +x $REMOTE_DIR/install.sh && $REMOTE_CMD; RC=\$?; rm -rf $REMOTE_DIR; exit \$RC"

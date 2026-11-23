@@ -1,4 +1,4 @@
-module minicloud
+module minibase
 
 go 1.26
 

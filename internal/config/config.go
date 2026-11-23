@@ -13,7 +13,7 @@ import (
 type Config struct {
 	ListenAddr string `json:"listen_addr"`
 
-	// Token 管理员令牌。可用环境变量 MINICLOUD_TOKEN 覆盖。
+	// Token 管理员令牌。可用环境变量 MINIBASE_TOKEN 覆盖。
 	Token string `json:"token"`
 
 	// DataDir 数据根目录，下面放 system.db / databases / apps。
@@ -169,17 +169,17 @@ func Load(path string) (*Config, error) {
 			}
 		}
 	}
-	if v := os.Getenv("MINICLOUD_TOKEN"); v != "" {
+	if v := os.Getenv("MINIBASE_TOKEN"); v != "" {
 		cfg.Token = v
 	}
-	if v := os.Getenv("MINICLOUD_DATA_DIR"); v != "" {
+	if v := os.Getenv("MINIBASE_DATA_DIR"); v != "" {
 		cfg.DataDir = v
 	}
-	if v := os.Getenv("MINICLOUD_LISTEN"); v != "" {
+	if v := os.Getenv("MINIBASE_LISTEN"); v != "" {
 		cfg.ListenAddr = v
 	}
 	if cfg.Token == "" {
-		return nil, fmt.Errorf("管理员 Token 未配置：请写进配置文件或用环境变量 MINICLOUD_TOKEN 指定")
+		return nil, fmt.Errorf("管理员 Token 未配置：请写进配置文件或用环境变量 MINIBASE_TOKEN 指定")
 	}
 	abs, err := filepath.Abs(cfg.DataDir)
 	if err != nil {

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"minicloud/internal/database"
+	"minibase/internal/database"
 )
 
 // handleEnv API: POST /api/apps/<项目ID>/<应用名>/env  查用 GET

@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"minicloud/internal/crypto"
-	"minicloud/internal/database"
-	"minicloud/internal/monitor"
+	"minibase/internal/crypto"
+	"minibase/internal/database"
+	"minibase/internal/monitor"
 )
 
 func authReq(t *testing.T, method, url string, body io.Reader, contentType string) *http.Response {

@@ -1,4 +1,4 @@
-// minicore 是 MiniCloud 平台的唯一常驻进程。
+// minicore 是 MiniBase 平台的唯一常驻进程。
 package main
 
 import (
@@ -12,15 +12,15 @@ import (
 	"syscall"
 	"time"
 
-	"minicloud/internal/api"
-	"minicloud/internal/config"
-	"minicloud/internal/crypto"
-	"minicloud/internal/database"
-	"minicloud/internal/deploy"
-	"minicloud/internal/logger"
-	"minicloud/internal/monitor"
-	"minicloud/internal/resource"
-	"minicloud/internal/runtime"
+	"minibase/internal/api"
+	"minibase/internal/config"
+	"minibase/internal/crypto"
+	"minibase/internal/database"
+	"minibase/internal/deploy"
+	"minibase/internal/logger"
+	"minibase/internal/monitor"
+	"minibase/internal/resource"
+	"minibase/internal/runtime"
 )
 
 func main() {
@@ -120,7 +120,7 @@ func main() {
 			log.Printf("[minicore] 热重载前保存运行时状态失败: %v", err)
 		}
 		// exec 替换当前进程，PID 不变，systemd 不重启，应用进程不受影响
-		if err := syscall.Exec("/opt/minicloud/bin/minicore", os.Args, os.Environ()); err != nil {
+		if err := syscall.Exec("/opt/minibase/bin/minicore", os.Args, os.Environ()); err != nil {
 			log.Fatalf("热重载失败: %v", err)
 		}
 	case <-stop:

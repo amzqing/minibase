@@ -8,7 +8,7 @@ import (
 	"net/http/httputil"
 	"strings"
 
-	"minicloud/internal/database"
+	"minibase/internal/database"
 )
 
 // Proxy 是按根路径分发的反向代理。
@@ -64,9 +64,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 跨项目隔离：带 X-MiniCloud-From 头时，只允许同项目应用互相调用。
+	// 跨项目隔离：带 X-MiniBase-From 头时，只允许同项目应用互相调用。
 	// 无头视为外部浏览器访问，保持原有行为不变。
-	if !AllowedBySource(r.Header.Get("X-MiniCloud-From"), app.ProjectID) {
+	if !AllowedBySource(r.Header.Get("X-MiniBase-From"), app.ProjectID) {
 		http.Error(w, "跨项目调用被拒绝", http.StatusForbidden)
 		return
 	}

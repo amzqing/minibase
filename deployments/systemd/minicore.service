@@ -1,5 +1,5 @@
 [Unit]
-Description=MiniCloud Core
+Description=MiniBase Core
 After=network-online.target
 Wants=network-online.target
 # StartLimitIntervalSec / StartLimitBurst 数字待实测，当前为保守占位。
@@ -8,10 +8,10 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-User=minicloud
-Group=minicloud
-WorkingDirectory=/opt/minicloud
-ExecStart=/opt/minicloud/bin/minicore -config /etc/minicloud/config.json
+User=minibase
+Group=minibase
+WorkingDirectory=/opt/minibase
+ExecStart=/opt/minibase/bin/minicore -config /etc/minibase/config.json
 Restart=always
 RestartSec=2
 StandardOutput=journal

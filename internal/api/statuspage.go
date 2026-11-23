@@ -10,7 +10,7 @@ const statusPageHTML = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
-<title>MiniCloud 状态</title>
+<title>MiniBase 状态</title>
 <style>
 body{font-family:system-ui,sans-serif;margin:2rem;max-width:900px;color:#222}
 h1{font-size:1.4rem} table{border-collapse:collapse;width:100%;margin:1rem 0}
@@ -20,7 +20,7 @@ button{padding:.4rem .8rem;cursor:pointer} .ok{color:green} .bad{color:red}
 </style>
 </head>
 <body>
-<h1>MiniCloud 状态页</h1>
+<h1>MiniBase 状态页</h1>
 <p>输入管理员 Token 后查看。<a href="https://github.com" target="_blank"></a></p>
 <p><input type="password" id="token" placeholder="管理员 Token" size="40">
 <button onclick="load()">刷新</button></p>

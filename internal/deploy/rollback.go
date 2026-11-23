@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"minicloud/internal/database"
+	"minibase/internal/database"
 )
 
 // Rollback 把应用切回上一个版本。不重新分配端口，不重新构建。

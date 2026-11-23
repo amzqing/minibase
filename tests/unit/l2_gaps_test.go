@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"minicloud/internal/database"
-	"minicloud/internal/health"
-	"minicloud/internal/logger"
-	"minicloud/internal/monitor"
+	"minibase/internal/database"
+	"minibase/internal/health"
+	"minibase/internal/logger"
+	"minibase/internal/monitor"
 )
 
 // G1: SQL 超时配置化

@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"minicloud/internal/config"
-	"minicloud/internal/database"
+	"minibase/internal/config"
+	"minibase/internal/database"
 )
 
 // RestartFunc 重启应用的回调，由 deploy 层提供。

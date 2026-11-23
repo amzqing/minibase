@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"minicloud/internal/database"
-	"minicloud/internal/health"
+	"minibase/internal/database"
+	"minibase/internal/health"
 )
 
 // ===== 版本二新增 API =====

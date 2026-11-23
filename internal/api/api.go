@@ -10,14 +10,14 @@ import (
 	"os"
 	"strings"
 
-	"minicloud/internal/auth"
-	"minicloud/internal/config"
-	"minicloud/internal/crypto"
-	"minicloud/internal/database"
-	"minicloud/internal/deploy"
-	"minicloud/internal/logger"
-	"minicloud/internal/proxy"
-	"minicloud/internal/storage"
+	"minibase/internal/auth"
+	"minibase/internal/config"
+	"minibase/internal/crypto"
+	"minibase/internal/database"
+	"minibase/internal/deploy"
+	"minibase/internal/logger"
+	"minibase/internal/proxy"
+	"minibase/internal/storage"
 )
 
 // Server 组装全部路由。
@@ -120,7 +120,7 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 	}
 	defer f.Close()
 
-	tmp, err := os.CreateTemp("", "minicloud-upload-*.zip")
+	tmp, err := os.CreateTemp("", "minibase-upload-*.zip")
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return

@@ -5,7 +5,7 @@ data/
 *.tmp
 /bin/
 /minicore
-/minicloud
+/minibase
 
 # 文档不提交，根目录 README.md 提交
 /docs/

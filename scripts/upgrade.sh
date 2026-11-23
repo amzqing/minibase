@@ -1,5 +1,5 @@
 #!/bin/sh
-# MiniCloud 目标机升级器：备份旧二进制 → 替换 → 重启 → 探活；失败自动回滚。
+# MiniBase 目标机升级器：备份旧二进制 → 替换 → 重启 → 探活；失败自动回滚。
 # 不碰 config.json、system.db 和数据目录，保留 master_key 和应用数据。
 # 用法: sudo ./upgrade.sh <新minicore二进制> [新CLI二进制]
 set -eu
@@ -15,9 +15,9 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 2
 fi
 
-TARGET=/opt/minicloud/bin/minicore
+TARGET=/opt/minibase/bin/minicore
 BACKUP="${TARGET}.bak.$(date +%Y%m%d%H%M%S)"
-CLI_TARGET=/opt/minicloud/bin/minicloud
+CLI_TARGET=/opt/minibase/bin/minibase
 CLI_BACKUP=""
 
 echo "[1/5] 备份旧二进制"

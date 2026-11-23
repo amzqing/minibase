@@ -18,12 +18,12 @@ import (
 	"sync"
 	"time"
 
-	"minicloud/internal/config"
-	"minicloud/internal/crypto"
-	"minicloud/internal/database"
-	"minicloud/internal/health"
-	"minicloud/internal/resource"
-	"minicloud/internal/runtime"
+	"minibase/internal/config"
+	"minibase/internal/crypto"
+	"minibase/internal/database"
+	"minibase/internal/health"
+	"minibase/internal/resource"
+	"minibase/internal/runtime"
 )
 
 const runtimeStateFile = "runtime-state.json"

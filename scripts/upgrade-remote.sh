@@ -5,7 +5,7 @@
 set -eu
 
 TARGET="${1:-}"
-SSH_OPTS="${MINICLOUD_SSH_OPTS:-}"
+SSH_OPTS="${MINIBASE_SSH_OPTS:-}"
 if [ -z "$TARGET" ] || [ "$TARGET" = "-h" ]; then
   echo "用法: $0 root@服务器IP [--arch amd64]" >&2
   exit 2
@@ -35,12 +35,12 @@ fi
 
 echo "[2/4] 交叉编译"
 (cd "$ROOT_DIR" && GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 go build -o "$BUILD_DIR/minicore" ./cmd/minicore)
-(cd "$ROOT_DIR" && GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 go build -o "$BUILD_DIR/minicloud" ./cmd/minicloud)
+(cd "$ROOT_DIR" && GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 go build -o "$BUILD_DIR/minibase" ./cmd/minibase)
 
 echo "[3/4] 上传"
-REMOTE_DIR="/tmp/minicloud-upgrade-$$"
+REMOTE_DIR="/tmp/minibase-upgrade-$$"
 ssh $SSH_OPTS "$TARGET" "mkdir -p $REMOTE_DIR"
-scp -q $SSH_OPTS "$BUILD_DIR/minicore" "$BUILD_DIR/minicloud" "$ROOT_DIR/scripts/upgrade.sh" "$TARGET:$REMOTE_DIR/"
+scp -q $SSH_OPTS "$BUILD_DIR/minicore" "$BUILD_DIR/minibase" "$ROOT_DIR/scripts/upgrade.sh" "$TARGET:$REMOTE_DIR/"
 
 echo "[4/4] 远程升级"
-ssh $SSH_OPTS "$TARGET" "chmod +x $REMOTE_DIR/upgrade.sh && $REMOTE_DIR/upgrade.sh $REMOTE_DIR/minicore $REMOTE_DIR/minicloud; RC=\$?; rm -rf $REMOTE_DIR; exit \$RC"
+ssh $SSH_OPTS "$TARGET" "chmod +x $REMOTE_DIR/upgrade.sh && $REMOTE_DIR/upgrade.sh $REMOTE_DIR/minicore $REMOTE_DIR/minibase; RC=\$?; rm -rf $REMOTE_DIR; exit \$RC"

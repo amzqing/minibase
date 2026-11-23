@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"minicloud/internal/crypto"
-	"minicloud/internal/database"
-	"minicloud/internal/proxy"
+	"minibase/internal/crypto"
+	"minibase/internal/database"
+	"minibase/internal/proxy"
 )
 
 // L3-01 环境变量配置 + 注入

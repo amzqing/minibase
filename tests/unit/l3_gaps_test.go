@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"minicloud/internal/api"
-	"minicloud/internal/crypto"
-	"minicloud/internal/deploy"
-	"minicloud/internal/proxy"
-	"minicloud/internal/resource"
-	"minicloud/internal/runtime"
+	"minibase/internal/api"
+	"minibase/internal/crypto"
+	"minibase/internal/deploy"
+	"minibase/internal/proxy"
+	"minibase/internal/resource"
+	"minibase/internal/runtime"
 )
 
 // L3-08 真实应用间调用：部署 A、B，带来源头访问 B
@@ -25,7 +25,7 @@ func TestL3_08_RealAppToApp(t *testing.T) {
 
 	// 同项目来源头放行
 	req, _ := http.NewRequest(http.MethodGet, env.server.URL+"/apps/proj_a/target/api/users", nil)
-	req.Header.Set("X-MiniCloud-From", "proj_a")
+	req.Header.Set("X-MiniBase-From", "proj_a")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +51,7 @@ func TestL3_09_RealCrossProjectDeny(t *testing.T) {
 	env := newEnv(t, &fakeRunner{mode: "ok"})
 	env.deploy(t, fixture("hello.zip"), "target", "proj_a", "a")
 	req, _ := http.NewRequest(http.MethodGet, env.server.URL+"/apps/proj_a/target/api/users", nil)
-	req.Header.Set("X-MiniCloud-From", "proj_b")
+	req.Header.Set("X-MiniBase-From", "proj_b")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)

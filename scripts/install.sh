@@ -1,5 +1,5 @@
 #!/bin/sh
-# MiniCloud 目标机安装器。
+# MiniBase 目标机安装器。
 # 用法: sudo ./install.sh --binary /path/to/minicore [--token TOKEN] [--listen PORT] [--config PATH]
 # 做完这些事：装 Node.js、生成配置、建用户和目录、准备 cgroup、写 systemd 单元、启动并验证。
 set -eu
@@ -48,13 +48,13 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 echo "  Node $(node --version)"
 
-echo "[2/7] 建运行用户 minicloud"
-if ! id -u minicloud >/dev/null 2>&1; then
-  useradd --system --home-dir /var/lib/minicloud --shell /usr/sbin/nologin minicloud
+echo "[2/7] 建运行用户 minibase"
+if ! id -u minibase >/dev/null 2>&1; then
+  useradd --system --home-dir /var/lib/minibase --shell /usr/sbin/nologin minibase
 fi
 
 echo "[3/7] 建目录"
-mkdir -p /opt/minicloud/bin /var/lib/minicloud /etc/minicloud
+mkdir -p /opt/minibase/bin /var/lib/minibase /etc/minibase
 
 echo "[4/7] 生成 Token 与配置"
 if [ -z "$TOKEN" ]; then
@@ -64,13 +64,13 @@ if [ -z "$MASTER_KEY" ]; then
   MASTER_KEY="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 fi
 if [ -n "$CFG_OPT" ]; then
-  install -m 0640 "$CFG_OPT" /etc/minicloud/config.json
+  install -m 0640 "$CFG_OPT" /etc/minibase/config.json
 else
-  cat > /etc/minicloud/config.json <<CFG_EOF
+  cat > /etc/minibase/config.json <<CFG_EOF
 {
   "listen_addr": "$LISTEN",
   "token": "$TOKEN",
-  "data_dir": "/var/lib/minicloud/data",
+  "data_dir": "/var/lib/minibase/data",
   "port_start": 30000,
   "port_end": 30100,
   "busy_timeout_ms": 5000,
@@ -108,16 +108,16 @@ CFG_EOF
 fi
 
 echo "[5/7] 安装二进制"
-install -m 0755 "$BIN" /opt/minicloud/bin/minicore
+install -m 0755 "$BIN" /opt/minibase/bin/minicore
 if [ -n "$CLI_BIN" ] && [ -f "$CLI_BIN" ]; then
-  install -m 0755 "$CLI_BIN" /opt/minicloud/bin/minicloud
+  install -m 0755 "$CLI_BIN" /opt/minibase/bin/minibase
 fi
-chown -R minicloud:minicloud /opt/minicloud /var/lib/minicloud /etc/minicloud
+chown -R minibase:minibase /opt/minibase /var/lib/minibase /etc/minibase
 
 echo "[6/7] 写 systemd 单元并准备 cgroup"
 # journald 限额（排障日志回收第一层）
 mkdir -p /etc/systemd/journald.conf.d
-cat > /etc/systemd/journald.conf.d/minicloud.conf <<'JEOF'
+cat > /etc/systemd/journald.conf.d/minibase.conf <<'JEOF'
 [Journal]
 SystemMaxUse=200M
 MaxRetentionSec=7day
@@ -130,7 +130,7 @@ if [ ! -f "$UNIT_SRC" ]; then
 fi
 install -m 0644 "$UNIT_SRC" /etc/systemd/system/minicore.service
 if [ -f /sys/fs/cgroup/cgroup.controllers ] && grep -qw memory /sys/fs/cgroup/cgroup.controllers; then
-  chown -R minicloud:minicloud /sys/fs/cgroup/system.slice/minicore.service 2>/dev/null || true
+  chown -R minibase:minibase /sys/fs/cgroup/system.slice/minicore.service 2>/dev/null || true
 else
   echo "  未检测到 cgroups v2，应用内存限制不会启用"
 fi
@@ -153,6 +153,6 @@ echo "  管理 Token : $TOKEN"
 echo "  主密钥     : $MASTER_KEY（请备份，丢失后密钥不可恢复）"
 echo "  健康检查   : curl http://127.0.0.1:${PORT}/health"
 echo "  访问地址   : http://${HOST}:${PORT}/apps/<项目ID>/<应用名>/"
-echo "  服务器 CLI  : /opt/minicloud/bin/minicloud"
-echo "  设置客户端 : export MINICLOUD_TOKEN=$TOKEN"
+echo "  服务器 CLI  : /opt/minibase/bin/minibase"
+echo "  设置客户端 : export MINIBASE_TOKEN=$TOKEN"
 echo "提示：第一版不备份，数据自己负责。"
