@@ -1,4 +1,4 @@
-# MiniCloud
+# MiniBase
 
 一个跑在 1C1G 小机器上的最小应用托管平台。用户上传 Node.js 项目包，平台启动进程、分配端口、转发流量。
 
@@ -22,7 +22,7 @@
 
 ```sh
 go build -o bin/minicore ./cmd/minicore
-go build -o bin/minicloud ./cmd/minicloud
+go build -o bin/minibase ./cmd/minibase
 ```
 
 ## 安装到服务器
@@ -36,7 +36,7 @@ go build -o bin/minicloud ./cmd/minicloud
 # 指定 Token
 ./scripts/deploy.sh root@服务器IP --token my-secret
 # SSH 密钥免密
-MINICLOUD_SSH_OPTS="-i ~/.ssh/id_ed25519" ./scripts/deploy.sh root@服务器IP
+MINIBASE_SSH_OPTS="-i ~/.ssh/id_ed25519" ./scripts/deploy.sh root@服务器IP
 ```
 
 安装做这些事：编译 → 上传 → 目标机装 Node → 生成 Token 和 master_key → 建用户和目录 → 写 systemd 单元 → 启动并验证。结束时打印 Token、主密钥和访问地址。**主密钥要备份，丢了密钥解不开。**
@@ -44,42 +44,42 @@ MINICLOUD_SSH_OPTS="-i ~/.ssh/id_ed25519" ./scripts/deploy.sh root@服务器IP
 目标机已有二进制时，单独安装：
 
 ```sh
-sudo ./scripts/install.sh --binary /path/to/minicore --cli-binary /path/to/minicloud
+sudo ./scripts/install.sh --binary /path/to/minicore --cli-binary /path/to/minibase
 ```
 
 ## 日常使用
 
 ```sh
-export MINICLOUD_TOKEN=安装时打印的Token
+export MINIBASE_TOKEN=安装时打印的Token
 
 # 部署应用（mode a=包里带 node_modules，mode b=平台 npm install）
-minicloud deploy hello.zip --app shop --project proj_a --mode a
+minibase deploy hello.zip --app shop --project proj_a --mode a
 
 # 访问
 curl http://服务器IP:8080/apps/proj_a/shop/api/users
 
 # 查状态 / 日志
-minicloud status shop
-minicloud logs shop
+minibase status shop
+minibase logs shop
 
 # 回滚到上一个版本
-minicloud rollback proj_a/shop
+minibase rollback proj_a/shop
 
 # 数据库 CRUD
-minicloud data proj_a users post '{"name":"Alice"}'
-minicloud data proj_a users get
+minibase data proj_a users post '{"name":"Alice"}'
+minibase data proj_a users get
 
 # 对象存储
-minicloud storage upload proj_a shop ./photo.jpg
-minicloud storage list proj_a shop
+minibase storage upload proj_a shop ./photo.jpg
+minibase storage list proj_a shop
 
 # 环境变量 / 密钥
-minicloud env set proj_a/shop NODE_ENV=production
-minicloud env set proj_a/shop API_KEY=secret --secret
-minicloud env list proj_a/shop
+minibase env set proj_a/shop NODE_ENV=production
+minibase env set proj_a/shop API_KEY=secret --secret
+minibase env list proj_a/shop
 
 # 下线应用（回收端口）
-minicloud down proj_a/shop
+minibase down proj_a/shop
 ```
 
 配置改动下次部署生效，不重启当前版本。详细命令见 [docs/OPERATIONS.md](docs/OPERATIONS.md)。
@@ -109,7 +109,7 @@ sudo ./scripts/uninstall.sh
 默认只卸载服务、systemd 单元和二进制，保留配置和数据。配置里有 `master_key`，数据和它必须一起留着。重装时要带原配置：
 
 ```sh
-sudo ./scripts/install.sh --binary /path/to/minicore --config /etc/minicloud/config.json
+sudo ./scripts/install.sh --binary /path/to/minicore --config /etc/minibase/config.json
 ```
 
 从本机一条命令卸载：
