@@ -1,0 +1,14 @@
+.DS_Store
+data/
+*.test
+*.out
+*.tmp
+/bin/
+/minicore
+/minicloud
+
+# 文档不提交
+*.md
+/docs/
+/tests/baselines/
+/tests/real-device/

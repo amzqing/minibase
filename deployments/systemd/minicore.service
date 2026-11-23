@@ -1,0 +1,26 @@
+[Unit]
+Description=MiniCloud Core
+After=network-online.target
+Wants=network-online.target
+# StartLimitIntervalSec / StartLimitBurst 数字待实测，当前为保守占位。
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=minicloud
+Group=minicloud
+WorkingDirectory=/opt/minicloud
+ExecStart=/opt/minicloud/bin/minicore -config /etc/minicloud/config.json
+Restart=always
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=minicore
+LimitNOFILE=4096
+NoNewPrivileges=true
+PrivateTmp=true
+Delegate=yes
+
+[Install]
+WantedBy=multi-user.target
