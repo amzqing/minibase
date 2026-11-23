@@ -133,10 +133,12 @@ ssh root@服务器IP 'bash -s -- --purge-data --yes' < scripts/uninstall.sh
 Apifox 可以直接导入这个文件：
 
 ```sh
-apifox import --project <项目ID> --format openapi --file api/openapi.yaml
+apifox import --project 9079556 --branch main --format openapi --file api/openapi.yaml \
+  --module-map "MiniBase 管控 API=8944573" --overwrite-mode overwrite
 ```
 
-本地项目已经使用的 Apifox 项目 ID：`9079556`。
+本地项目已经使用的 Apifox 项目 ID：`9079556`。  
+OpenAPI 模块 ID：`8944573`。重复导入时指定模块 ID，避免生成重复接口。
 
 导入后的接口分组按 OpenAPI `tags` 生成：运维、部署、应用管理、日志与审计、数据库、对象存储。
 所有 `/api/...` 接口使用 `Authorization: Bearer <MINIBASE_TOKEN>`。
