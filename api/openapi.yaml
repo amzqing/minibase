@@ -1,0 +1,1162 @@
+openapi: 3.0.3
+info:
+  title: MiniBase 管控 API
+  version: 1.0.0
+  description: 'MiniBase 管控面 API。包含健康检查、部署、应用管理、项目数据库 CRUD、对象存储、日志审计。应用流量转发 `/apps/...`
+    和公开文件访问 `/files/...` 不在本文件范围内。除 `/health` 外，所有 `/api/...` 接口都需要 `Authorization:
+    Bearer <token>`。'
+servers:
+- url: http://{host}:{port}
+  description: MiniBase Core
+  variables:
+    host:
+      default: 127.0.0.1
+      description: Core 所在主机
+    port:
+      default: '8080'
+      description: Core 监听端口
+security:
+- bearerAuth: []
+tags:
+- name: 运维
+  description: 健康检查
+- name: 部署
+  description: 上传 zip 并部署应用
+- name: 应用管理
+  description: 状态、回滚、环境变量、密钥、下线
+- name: 日志与审计
+  description: 应用日志、日志开关、审计账本
+- name: 数据库
+  description: 项目业务数据 CRUD
+- name: 对象存储
+  description: 本机对象存储上传、下载、删除、列表
+paths:
+  /health:
+    get:
+      tags:
+      - 运维
+      summary: 健康检查
+      operationId: health
+      responses:
+        '200':
+          description: Core 正常
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+      security: []
+  /api/deploy:
+    post:
+      tags:
+      - 部署
+      summary: 部署 zip 项目
+      operationId: deploy
+      responses:
+        '200':
+          description: 部署成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeployResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DeployRequest'
+  /api/status/{app}:
+    get:
+      tags:
+      - 应用管理
+      summary: 按应用名查状态
+      operationId: getStatusByName
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppStatus'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      parameters:
+      - name: app
+        in: path
+        required: true
+        description: 应用名
+        schema:
+          type: string
+  /api/apps-list:
+    get:
+      tags:
+      - 应用管理
+      summary: 应用列表
+      operationId: listApps
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AppListItem'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/logs/{app}:
+    get:
+      tags:
+      - 日志与审计
+      summary: 版本一兼容日志接口
+      operationId: getLegacyAppLogs
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LegacyLog'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      description: 版本一保留接口，当前返回空日志和提示，实际应用日志用 `/api/apps/{projectId}/{appName}/applog`。
+      parameters:
+      - name: app
+        in: path
+        required: true
+        description: 应用名
+        schema:
+          type: string
+  /api/logs/control:
+    get:
+      tags:
+      - 日志与审计
+      summary: 查询日志开关
+      operationId: getLogControl
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogControlStatus'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags:
+      - 日志与审计
+      summary: 设置日志开关
+      operationId: setLogControl
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ok'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogControlRequest'
+  /api/logs/audit:
+    get:
+      tags:
+      - 日志与审计
+      summary: 查询审计账本
+      operationId: listAuditLogs
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditLog'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        description: 最多返回条数，默认 100
+        schema:
+          type: integer
+          default: 100
+          minimum: 1
+  /api/data/{projectId}/{table}:
+    get:
+      tags:
+      - 数据库
+      summary: 查询记录
+      operationId: dataList
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DataRow'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      description: 除 `limit` 外，其他查询参数会作为字段名等值条件。字段名需匹配 `^[A-Za-z_][A-Za-z0-9_]*$`。
+      parameters:
+      - name: projectId
+        in: path
+        required: true
+        description: 项目 ID
+        schema:
+          type: string
+      - name: table
+        in: path
+        required: true
+        description: 表名
+        schema:
+          type: string
+      - name: limit
+        in: query
+        required: false
+        description: 最多返回条数，默认 100
+        schema:
+          type: integer
+          default: 100
+          minimum: 1
+    post:
+      tags:
+      - 数据库
+      summary: 插入记录
+      operationId: dataCreate
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WriteResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DataWrite'
+      parameters:
+      - name: projectId
+        in: path
+        required: true
+        description: 项目 ID
+        schema:
+          type: string
+      - name: table
+        in: path
+        required: true
+        description: 表名
+        schema:
+          type: string
+  /api/data/{projectId}/{table}/{id}:
+    get:
+      tags:
+      - 数据库
+      summary: 按 ID 查询记录
+      operationId: dataGet
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DataRow'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      parameters:
+      - name: projectId
+        in: path
+        required: true
+        description: 项目 ID
+        schema:
+          type: string
+      - name: table
+        in: path
+        required: true
+        description: 表名
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        description: 记录 ID
+        schema:
+          type: string
+    put:
+      tags:
+      - 数据库
+      summary: 更新记录
+      operationId: dataUpdate
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DataWrite'
+      parameters:
+      - name: projectId
+        in: path
+        required: true
+        description: 项目 ID
+        schema:
+          type: string
+      - name: table
+        in: path
+        required: true
+        description: 表名
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        description: 记录 ID
+        schema:
+          type: string
+    delete:
+      tags:
+      - 数据库
+      summary: 删除记录
+      operationId: dataDelete
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ok'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      parameters:
+      - name: projectId
+        in: path
+        required: true
+        description: 项目 ID
+        schema:
+          type: string
+      - name: table
+        in: path
+        required: true
+        description: 表名
+        schema:
+          type: string
+      - name: id
+        in: path
+        required: true
+        description: 记录 ID
+        schema:
+          type: string
+  /api/storage/upload/{projectId}/{appName}:
+    post:
+      tags:
+      - 对象存储
+      summary: 上传文件
+      operationId: storageUpload
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageUploadResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+              - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+      parameters:
+      - name: projectId
+        in: path
+        required: true
+        description: 项目 ID
+        schema:
+          type: string
+      - name: appName
+        in: path
+        required: true
+        description: 应用名
+        schema:
+          type: string
+  /api/storage/download/{projectId}/{appName}/{fileId}:
+    get:
+      tags:
+      - 对象存储
+      summary: 下载文件
+      operationId: storageDownload
+      responses:
+        '200':
+          description: 文件内容
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      parameters:
+      - name: projectId
+        in: path
+        required: true
+        description: 项目 ID
+        schema:
+          type: string
+      - name: appName
+        in: path
+        required: true
+        description: 应用名
+        schema:
+          type: string
+      - name: fileId
+        in: path
+        required: true
+        description: 文件 ID
+        schema:
+          type: string
+  /api/storage/delete/{projectId}/{appName}/{fileId}:
+    delete:
+      tags:
+      - 对象存储
+      summary: 删除文件
+      operationId: storageDelete
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ok'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      parameters:
+      - name: projectId
+        in: path
+        required: true
+        description: 项目 ID
+        schema:
+          type: string
+      - name: appName
+        in: path
+        required: true
+        description: 应用名
+        schema:
+          type: string
+      - name: fileId
+        in: path
+        required: true
+        description: 文件 ID
+        schema:
+          type: string
+  /api/storage/list/{projectId}/{appName}:
+    get:
+      tags:
+      - 对象存储
+      summary: 文件列表
+      operationId: storageList
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StorageObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      parameters:
+      - name: projectId
+        in: path
+        required: true
+        description: 项目 ID
+        schema:
+          type: string
+      - name: appName
+        in: path
+        required: true
+        description: 应用名
+        schema:
+          type: string
+  /api/storage/migrate/{projectId}/{appName}:
+    get:
+      tags:
+      - 对象存储
+      summary: 外部 S3 迁移预留接口
+      operationId: storageMigrate
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageMigrateResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      description: 接口预留，当前返回 `not_implemented`。
+      parameters:
+      - name: projectId
+        in: path
+        required: true
+        description: 项目 ID
+        schema:
+          type: string
+      - name: appName
+        in: path
+        required: true
+        description: 应用名
+        schema:
+          type: string
+  /api/apps/{projectId}/{appName}/rollback:
+    post:
+      tags:
+      - 应用管理
+      summary: 回滚到上一个版本
+      operationId: rollback
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RollbackResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      parameters: &id001
+      - name: projectId
+        in: path
+        required: true
+        description: 项目 ID
+        schema:
+          type: string
+      - name: appName
+        in: path
+        required: true
+        description: 应用名
+        schema:
+          type: string
+  /api/apps/{projectId}/{appName}/status:
+    get:
+      tags:
+      - 应用管理
+      summary: 查询应用详细状态
+      operationId: getAppStatus
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppDetailStatus'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      parameters: *id001
+  /api/apps/{projectId}/{appName}/secrets:
+    post:
+      tags:
+      - 应用管理
+      summary: 写入加密密钥
+      operationId: setSecrets
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CountResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      description: 推荐统一使用 `/env` 接口的 `_secret` 数组。此接口保留兼容。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SecretWrite'
+      parameters: *id001
+  /api/apps/{projectId}/{appName}/env:
+    get:
+      tags:
+      - 应用管理
+      summary: 查询环境变量与密钥
+      operationId: getEnv
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EnvItem'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      parameters: *id001
+    post:
+      tags:
+      - 应用管理
+      summary: 设置环境变量与密钥
+      operationId: setEnv
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnvSetResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnvWrite'
+      parameters: *id001
+  /api/apps/{projectId}/{appName}/applog:
+    get:
+      tags:
+      - 日志与审计
+      summary: 查询应用日志尾部
+      operationId: getAppLog
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppLogResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      parameters: *id001
+  /api/apps/{projectId}/{appName}:
+    delete:
+      tags:
+      - 应用管理
+      summary: 下线应用并回收端口
+      operationId: deleteApp
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkNotice'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      parameters: *id001
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Token
+  responses:
+    BadRequest:
+      description: 请求错误
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Token 缺失或错误
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalError:
+      description: 服务端错误
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Error:
+      type: object
+      required:
+      - error
+      properties:
+        error:
+          type: string
+    Health:
+      type: object
+      required:
+      - status
+      properties:
+        status:
+          type: string
+          example: ok
+    DeployRequest:
+      type: object
+      required:
+      - file
+      properties:
+        file:
+          type: string
+          format: binary
+          description: Node.js 项目 zip 包
+        app:
+          type: string
+          description: 应用名，不传时取 package.json 的 name
+        project:
+          type: string
+          description: 项目 ID，不传时自动生成
+        mode:
+          type: string
+          enum:
+          - a
+          - b
+          default: b
+          description: a=包里带 node_modules；b=平台执行 npm install
+    DeployResult:
+      type: object
+      properties:
+        project_id:
+          type: string
+        app_name:
+          type: string
+        root_path:
+          type: string
+        version:
+          type: string
+        port:
+          type: integer
+        status:
+          type: string
+        access_url:
+          type: string
+        notice:
+          type: string
+        file:
+          type: string
+    AppStatus:
+      type: object
+      properties:
+        app_name:
+          type: string
+        project_id:
+          type: string
+        root_path:
+          type: string
+        current_version:
+          type: string
+        previous_version:
+          type: string
+        port:
+          type: integer
+        status:
+          type: string
+        access_url:
+          type: string
+        notice:
+          type: string
+    LegacyLog:
+      type: object
+      properties:
+        app_name:
+          type: string
+        logs:
+          type: string
+        notice:
+          type: string
+    AppListItem:
+      type: object
+      properties:
+        project_id:
+          type: string
+        app_name:
+          type: string
+        status:
+          type: string
+        current_version:
+          type: string
+        port:
+          type: integer
+        access_url:
+          type: string
+    LogControlItem:
+      type: object
+      properties:
+        scope:
+          type: string
+        app_name:
+          type: string
+        enabled:
+          type: boolean
+        level:
+          type: string
+        expires_at:
+          type: integer
+          format: int64
+    LogControlStatus:
+      type: object
+      additionalProperties:
+        $ref: '#/components/schemas/LogControlItem'
+    LogControlRequest:
+      type: object
+      required:
+      - scope
+      - enabled
+      properties:
+        scope:
+          type: string
+          enum:
+          - control
+          - app
+          description: 日志范围
+        app_name:
+          type: string
+          description: scope=app 时指定应用名
+        enabled:
+          type: boolean
+        duration_sec:
+          type: integer
+          description: 自动关闭秒数，0 表示不自动关闭
+        level:
+          type: string
+          enum:
+          - all
+          - error
+          default: error
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: string
+        app_id:
+          type: string
+        project_id:
+          type: string
+        event:
+          type: string
+        from_status:
+          type: string
+        to_status:
+          type: string
+        reason:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+    DataRow:
+      type: object
+      additionalProperties: true
+      description: 项目库的一行数据；字段名由业务决定
+    DataWrite:
+      type: object
+      additionalProperties: true
+      description: 字段名需匹配 `^[A-Za-z_][A-Za-z0-9_]*$`
+    WriteResult:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+        id:
+          type: string
+    UpdateResult:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+        affected:
+          type: integer
+    Ok:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+    OkNotice:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+        notice:
+          type: string
+    CountResult:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+        count:
+          type: integer
+    StorageUploadResult:
+      type: object
+      properties:
+        id:
+          type: string
+        url:
+          type: string
+    StorageObject:
+      type: object
+      properties:
+        id:
+          type: string
+        project_id:
+          type: string
+        app_name:
+          type: string
+        file_name:
+          type: string
+        size:
+          type: integer
+          format: int64
+        content_type:
+          type: string
+        created_at:
+          type: integer
+          format: int64
+    StorageMigrateResult:
+      type: object
+      properties:
+        status:
+          type: string
+        notice:
+          type: string
+    RollbackResult:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+        version:
+          type: string
+        port:
+          type: integer
+        access_url:
+          type: string
+    AppDetailStatus:
+      type: object
+      properties:
+        app_name:
+          type: string
+        status:
+          type: string
+        current_version:
+          type: string
+        previous_version:
+          type: string
+        restart_count:
+          type: integer
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLog'
+    SecretWrite:
+      type: object
+      additionalProperties:
+        type: string
+      description: 键值对形式的密钥，值会被加密存储
+    EnvWrite:
+      type: object
+      description: 普通变量和密钥走同一个接口；`_secret` 中列出的键按密钥加密存储
+      properties:
+        _secret:
+          type: array
+          items:
+            type: string
+          description: 需要加密存储的键名列表
+      additionalProperties: true
+      example:
+        NODE_ENV: production
+        API_KEY: abc
+        _secret:
+        - API_KEY
+    EnvItem:
+      type: object
+      properties:
+        key:
+          type: string
+        value:
+          type: string
+        is_secret:
+          type: boolean
+    EnvSetResult:
+      type: object
+      properties:
+        status:
+          type: string
+          example: ok
+        count:
+          type: integer
+        notice:
+          type: string
+    AppLogResult:
+      type: object
+      properties:
+        logs:
+          type: string

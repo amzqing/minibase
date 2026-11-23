@@ -10,3 +10,8 @@ data/
 # 文档不提交，根目录 README.md 提交
 /docs/
 /tests/real-device/
+
+# 本地 AI 工具文件，不提交
+.agents/
+skills-lock.json
+.apifox/

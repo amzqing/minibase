@@ -126,6 +126,21 @@ ssh root@服务器IP 'bash -s -- --purge-data' < scripts/uninstall.sh
 ssh root@服务器IP 'bash -s -- --purge-data --yes' < scripts/uninstall.sh
 ```
 
+## Apifox 接口文档
+
+管控 API 的 OpenAPI 3.0 文件在 `api/openapi.yaml`。
+
+Apifox 可以直接导入这个文件：
+
+```sh
+apifox import --project <项目ID> --format openapi --file api/openapi.yaml
+```
+
+本地项目已经使用的 Apifox 项目 ID：`9079556`。
+
+导入后的接口分组按 OpenAPI `tags` 生成：运维、部署、应用管理、日志与审计、数据库、对象存储。
+所有 `/api/...` 接口使用 `Authorization: Bearer <MINIBASE_TOKEN>`。
+
 ## 测试
 
 ```sh
