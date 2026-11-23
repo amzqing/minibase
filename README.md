@@ -82,7 +82,7 @@ minibase env list proj_a/shop
 minibase down proj_a/shop
 ```
 
-配置改动下次部署生效，不重启当前版本。详细命令见 [docs/OPERATIONS.md](docs/OPERATIONS.md)。
+配置改动下次部署生效，不重启当前版本。详细命令见本地文档 `docs/OPERATIONS.md`（该目录不提交到公开仓库）。
 
 ## 状态页
 
@@ -96,7 +96,7 @@ minibase down proj_a/shop
 ./scripts/upgrade-remote.sh root@服务器IP
 ```
 
-升级脚本会备份旧二进制，探活失败自动回滚，不碰配置、数据目录和 master_key。详见 [docs/OPERATIONS.md](docs/OPERATIONS.md)。
+升级脚本会备份旧二进制，探活失败自动回滚，不碰配置、数据目录和 master_key。详见本地文档 `docs/OPERATIONS.md`（该目录不提交到公开仓库）。
 
 ## 卸载
 
@@ -136,9 +136,12 @@ go test ./...    # 所有逻辑测试
 
 ## 文档
 
-- [安装与运维](docs/OPERATIONS.md)
-- [故障排查](docs/TROUBLESHOOTING.md)
-- [开发方案](docs/00-开发方案.md)
-- [版本二验收](tests/ACCEPTANCE-v2.md)
-- [冷启动基线](tests/baselines/r1-06.md)、[数据库基线](tests/baselines/r2-01.md)
+以下文档保存在本地，不提交到公开仓库：
+
+- `docs/OPERATIONS.md`
+- `docs/TROUBLESHOOTING.md`
+- `docs/00-开发方案.md`
+- `docs/ACCEPTANCE-v2.md`
+- `docs/baselines/r1-06.md`
+- `docs/baselines/r2-01.md`
 
