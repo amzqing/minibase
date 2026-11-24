@@ -195,3 +195,5 @@ go test ./...    # 所有逻辑测试
 - `docs/baselines/r1-06.md`
 - `docs/baselines/r2-01.md`
 
+
+<!-- auto-deploy verification: 1795494414 -->
