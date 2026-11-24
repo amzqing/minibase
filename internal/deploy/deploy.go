@@ -203,20 +203,18 @@ func (d *Deployer) forgetHandle(key string) {
 
 // Request 是一次部署的输入。
 type Request struct {
-	ZipPath   string
-	AppName   string
-	ProjectID string
-	Mode      string
+	ZipPath string
+	AppName string
+	Mode    string
 }
 
 // Result 部署成功后的结果。
 type Result struct {
-	ProjectID string `json:"project_id"`
-	AppName   string `json:"app_name"`
-	RootPath  string `json:"root_path"`
-	Version   string `json:"version"`
-	Port      int    `json:"port"`
-	Status    string `json:"status"`
+	AppName  string `json:"app_name"`
+	RootPath string `json:"root_path"`
+	Version  string `json:"version"`
+	Port     int    `json:"port"`
+	Status   string `json:"status"`
 }
 
 func randomID(prefix string) string {
@@ -262,10 +260,6 @@ func (d *Deployer) Deploy(ctx context.Context, req Request) (*Result, error) {
 		return nil, err
 	}
 
-	projectID := req.ProjectID
-	if projectID == "" {
-		projectID = randomID("proj_")
-	}
 	appName := req.AppName
 	if appName == "" {
 		appName = pkg.Name
@@ -276,7 +270,7 @@ func (d *Deployer) Deploy(ctx context.Context, req Request) (*Result, error) {
 	if !validName(appName) {
 		return nil, fmt.Errorf("应用名只能包含字母数字、短横线和下划线")
 	}
-	rootPath := fmt.Sprintf("/apps/%s/%s", projectID, appName)
+	rootPath := fmt.Sprintf("/apps/%s", appName)
 
 	// 2. 同一应用串行部署。
 	// 应用锁按 rootPath 取，此时还没创建 app 记录，用 rootPath 作为逻辑 key。
@@ -284,12 +278,7 @@ func (d *Deployer) Deploy(ctx context.Context, req Request) (*Result, error) {
 	lock.Lock()
 	defer lock.Unlock()
 
-	// 3. 确保项目存在（建记录 + 建库文件原子完成）。
-	if err := d.store.EnsureProject(projectID, projectID); err != nil {
-		return nil, fmt.Errorf("确保项目存在失败: %w", err)
-	}
-
-	app, err := d.store.GetAppByName(projectID, appName)
+	app, err := d.store.GetAppByName(appName)
 	if err != nil {
 		return nil, fmt.Errorf("查询应用失败: %w", err)
 	}
@@ -299,11 +288,15 @@ func (d *Deployer) Deploy(ctx context.Context, req Request) (*Result, error) {
 	}
 	if app == nil {
 		app = &database.App{
-			ID: randomID("app_"), ProjectID: projectID, Name: appName,
+			ID: randomID("app_"), Name: appName,
 			RootPath: rootPath, Status: "构建中", CreatedAt: time.Now().Unix(),
 		}
 		if err := d.store.CreateApp(app); err != nil {
 			return nil, fmt.Errorf("创建应用记录失败: %w", err)
+		}
+		if _, err := d.store.EnsureDefaultDatabase(appName); err != nil {
+			_, _ = d.store.DB.Exec(`DELETE FROM apps WHERE id=?`, app.ID)
+			return nil, fmt.Errorf("创建应用默认库失败: %w", err)
 		}
 	}
 
@@ -312,7 +305,7 @@ func (d *Deployer) Deploy(ctx context.Context, req Request) (*Result, error) {
 		return nil, fmt.Errorf("分配版本号失败: %w", err)
 	}
 	versionStr := fmt.Sprintf("v%d", versionNum)
-	appDir := filepath.Join(d.cfg.AppsDir(), projectID, appName)
+	appDir := filepath.Join(d.cfg.AppsDir(), appName)
 	versionDir := filepath.Join(appDir, "versions", versionStr)
 	// 新版本目录必须干净。
 	if _, err := os.Stat(versionDir); err == nil {
@@ -356,7 +349,11 @@ func (d *Deployer) Deploy(ctx context.Context, req Request) (*Result, error) {
 	env := []string{
 		fmt.Sprintf("PORT=%d", port),
 		"MOUNT_PATH=" + rootPath,
+		"MINIBASE_DB_PATH=" + d.store.DatabasePath(appName, "main"),
 	}
+	dbs, _ := d.store.ListDatabases(appName)
+	dbJSON, _ := json.Marshal(dbs)
+	env = append(env, "MINIBASE_DATABASES="+string(dbJSON))
 	// 注入密钥（任务 E）：解密后作为环境变量传给应用
 	if d.cipher != nil {
 		secrets, _ := d.store.GetSecrets(app.ID, "")
@@ -384,13 +381,10 @@ func (d *Deployer) Deploy(ctx context.Context, req Request) (*Result, error) {
 	}()
 
 	// 8. 资源限制（best effort：失败只告警，不阻断部署）。
-	if err := d.limiter.Apply(handle.PID, versionDir, d.cfg.MemoryLimitMB, d.cfg.CPUQuotaPercent); err != nil {
-		log.Printf("[deploy] 应用内存限制未生效: %v", err)
-	}
+	d.applyLimits(handle.PID, versionDir, app.ID)
 
 	// 9. 健康检查：不通过就删新版本、停新进程，老版本不动。
-	timeout := time.Duration(d.cfg.HealthTimeoutMS) * time.Millisecond
-	if !d.runner.HealthCheck(port, timeout) {
+	if !d.runner.HealthCheck(port, d.healthTimeout(app.ID)) {
 		started = false
 		detail := readLogTail(filepath.Join(versionDir, "app.log"), d.cfg.LogTailBytes)
 		cleanup()
@@ -426,14 +420,14 @@ func (d *Deployer) Deploy(ctx context.Context, req Request) (*Result, error) {
 
 	// 审计账本：部署成功写一条
 	_ = d.store.InsertCallLog(&database.CallLog{
-		AppID: app.ID, ProjectID: projectID, Event: "部署成功",
+		AppID: app.ID, Event: "部署成功",
 		FromStatus: "启动中", ToStatus: "运行中", Reason: "版本 " + versionStr,
 		CreatedAt: time.Now().Unix(),
 	})
 
 	log.Printf("[deploy] %s 部署成功: 版本=%s 端口=%d", rootPath, versionStr, port)
 	return &Result{
-		ProjectID: projectID, AppName: appName, RootPath: rootPath,
+		AppName: appName, RootPath: rootPath,
 		Version: versionStr, Port: port, Status: "运行中",
 	}, nil
 }
@@ -543,9 +537,171 @@ func (d *Deployer) AttachHandle(key string, h *runtime.ProcessHandle) {
 // SetCipher 设置加密器，用于启动时注入应用密钥。
 func (d *Deployer) SetCipher(c *crypto.Cipher) { d.cipher = c }
 
-// Down 下线应用：停进程、删记录、释放端口、删版本目录。
-func (d *Deployer) Down(projectID, appName string) error {
-	app, err := d.store.GetAppByName(projectID, appName)
+// effectiveConfig 返回应用实际生效的配置，覆盖值优先于全局值。
+func (d *Deployer) EffectiveConfig(appID string) (memoryMB, cpuPercent, healthTimeoutMS int, startCmd string) {
+	memoryMB, cpuPercent, healthTimeoutMS = d.cfg.MemoryLimitMB, d.cfg.CPUQuotaPercent, d.cfg.HealthTimeoutMS
+	oc, err := d.store.GetAppConfig(appID)
+	if err != nil || oc == nil {
+		return
+	}
+	if oc.MemoryLimitMB != nil {
+		memoryMB = *oc.MemoryLimitMB
+	}
+	if oc.CPUQuotaPercent != nil {
+		cpuPercent = *oc.CPUQuotaPercent
+	}
+	if oc.HealthTimeoutMS != nil {
+		healthTimeoutMS = *oc.HealthTimeoutMS
+	}
+	if oc.StartCmd != nil {
+		startCmd = *oc.StartCmd
+	}
+	return
+}
+
+// applyLimits 按生效配置给进程设 cgroup 限制。
+func (d *Deployer) applyLimits(pid int, key, appID string) {
+	mem, cpu, _, _ := d.EffectiveConfig(appID)
+	if err := d.limiter.Apply(pid, key, mem, cpu); err != nil {
+		log.Printf("[deploy] 应用内存限制未生效: %v", err)
+	}
+}
+
+// healthTimeout 取应用生效的健康检查超时。
+func (d *Deployer) healthTimeout(appID string) time.Duration {
+	_, _, ms, _ := d.EffectiveConfig(appID)
+	if ms <= 0 {
+		ms = d.cfg.HealthTimeoutMS
+	}
+	return time.Duration(ms) * time.Millisecond
+}
+
+// Pause 暂停应用：停进程、回收端口，保留版本目录和全部数据。
+func (d *Deployer) Pause(appName string) error {
+	app, err := d.store.GetAppByName(appName)
+	if err != nil {
+		return err
+	}
+	if app == nil {
+		return fmt.Errorf("应用不存在")
+	}
+	lock := d.lockApp(app.RootPath)
+	lock.Lock()
+	defer lock.Unlock()
+
+	versions, _ := d.store.ListVersions(app.ID)
+	for _, v := range versions {
+		if h, ok := d.handles.Load(app.ID + "/" + v.Version); ok {
+			_ = h.(*runtime.ProcessHandle).Stop()
+			d.forgetHandle(app.ID + "/" + v.Version)
+		}
+		d.releasePort(v.Port)
+		_ = d.limiter.Remove(v.SourceDir)
+	}
+	if err := d.store.UpdateAppStatus(app.ID, "已暂停"); err != nil {
+		return err
+	}
+	_ = d.store.InsertCallLog(&database.CallLog{
+		AppID: app.ID, Event: "app_paused",
+		FromStatus: app.Status, ToStatus: "已暂停", Reason: "用户暂停应用",
+		CreatedAt: time.Now().Unix(),
+	})
+	return nil
+}
+
+// Resume 从当前版本恢复一个已暂停的应用。
+func (d *Deployer) Resume(appName string) (*Result, error) {
+	app, err := d.store.GetAppByName(appName)
+	if err != nil {
+		return nil, err
+	}
+	if app == nil {
+		return nil, fmt.Errorf("应用不存在")
+	}
+	if app.CurrentVersion == "" {
+		return nil, fmt.Errorf("应用没有可启动的版本")
+	}
+	lock := d.lockApp(app.RootPath)
+	lock.Lock()
+	defer lock.Unlock()
+
+	ver, err := d.store.GetVersion(app.ID, app.CurrentVersion)
+	if err != nil || ver == nil {
+		return nil, fmt.Errorf("版本记录不存在")
+	}
+	if runtime.PortInUse(ver.Port) {
+		return nil, fmt.Errorf("端口 %d 已被占用", ver.Port)
+	}
+
+	if err := d.store.UpdateAppStatus(app.ID, "启动中"); err != nil {
+		return nil, err
+	}
+	env := []string{}
+	if ver.EnvJSON != "" {
+		_ = json.Unmarshal([]byte(ver.EnvJSON), &env)
+	}
+	// 覆盖注入应用库路径，确保恢复后路径正确
+	env = append(env, "MINIBASE_DB_PATH="+d.store.DatabasePath(appName, "main"))
+	dbs, _ := d.store.ListDatabases(appName)
+	dbJSON, _ := json.Marshal(dbs)
+	env = append(env, "MINIBASE_DATABASES="+string(dbJSON))
+	startCmd := ver.StartCmd
+	_, _, _, ocStart := d.EffectiveConfig(app.ID)
+	if ocStart != "" {
+		startCmd = ocStart
+	}
+
+	handle, err := d.runner.Start(ver.SourceDir, startCmd, env, ver.Port)
+	if err != nil {
+		_ = d.store.UpdateAppStatus(app.ID, "失败")
+		return nil, fmt.Errorf("启动失败: %w", err)
+	}
+	mem, cpu, _, _ := d.EffectiveConfig(app.ID)
+	if err := d.limiter.Apply(handle.PID, ver.SourceDir, mem, cpu); err != nil {
+		log.Printf("[deploy] 应用内存限制未生效: %v", err)
+	}
+	if !d.runner.HealthCheck(ver.Port, d.healthTimeout(app.ID)) {
+		_ = handle.Stop()
+		_ = d.store.UpdateAppStatus(app.ID, "失败")
+		return nil, fmt.Errorf("健康检查失败，应用停在端口 %d", ver.Port)
+	}
+	d.rememberHandle(app.ID+"/"+ver.Version, handle)
+	d.allocated[ver.Port] = true
+	if err := d.store.UpdateAppStatus(app.ID, "运行中"); err != nil {
+		return nil, err
+	}
+	_ = d.store.InsertCallLog(&database.CallLog{
+		AppID: app.ID, Event: "app_resumed",
+		FromStatus: "已暂停", ToStatus: "运行中", Reason: "用户恢复应用",
+		CreatedAt: time.Now().Unix(),
+	})
+	return &Result{AppName: app.Name, RootPath: app.RootPath,
+		Version: ver.Version, Port: ver.Port, Status: "运行中"}, nil
+}
+
+// Restart 重启应用。
+func (d *Deployer) Restart(appName string) (*Result, error) {
+	if err := d.Pause(appName); err != nil {
+		return nil, err
+	}
+	res, err := d.Resume(appName)
+	if err != nil {
+		return nil, err
+	}
+	app, _ := d.store.GetAppByName(appName)
+	if app != nil {
+		_ = d.store.InsertCallLog(&database.CallLog{
+			AppID: app.ID, Event: "app_restarted",
+			FromStatus: "运行中", ToStatus: "运行中", Reason: "用户重启应用",
+			CreatedAt: time.Now().Unix(),
+		})
+	}
+	return res, nil
+}
+
+// Destroy 彻底删除应用：停进程、删记录、释放端口、删版本目录。
+func (d *Deployer) Destroy(appName string) error {
+	app, err := d.store.GetAppByName(appName)
 	if err != nil {
 		return err
 	}
@@ -566,27 +722,8 @@ func (d *Deployer) Down(projectID, appName string) error {
 		_ = d.limiter.Remove(v.SourceDir)
 		_ = os.RemoveAll(v.SourceDir)
 	}
-	_, err = d.store.DB.Exec(`DELETE FROM versions WHERE app_id=?`, app.ID)
-	if err != nil {
+	if err := d.store.DeleteAppCascade(appName); err != nil {
 		return err
 	}
-	_, err = d.store.DB.Exec(`DELETE FROM secrets WHERE app_id=?`, app.ID)
-	if err != nil {
-		return err
-	}
-	_, err = d.store.DB.Exec(`DELETE FROM app_env WHERE app_id=?`, app.ID)
-	if err != nil {
-		return err
-	}
-	_, err = d.store.DB.Exec(`DELETE FROM apps WHERE id=?`, app.ID)
-	if err != nil {
-		return err
-	}
-	_ = os.RemoveAll(filepath.Join(d.cfg.AppsDir(), projectID, appName))
-	_ = d.store.InsertCallLog(&database.CallLog{
-		AppID: app.ID, ProjectID: projectID, Event: "下线",
-		FromStatus: app.Status, ToStatus: "已停止", Reason: "用户下线应用",
-		CreatedAt: time.Now().Unix(),
-	})
 	return nil
 }

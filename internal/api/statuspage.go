@@ -26,22 +26,22 @@ button{padding:.4rem .8rem;cursor:pointer} .ok{color:green} .bad{color:red}
 <button onclick="load()">刷新</button></p>
 <div id="msg"></div>
 <h2>应用</h2>
-<table id="apps"><tr><th>项目</th><th>应用</th><th>状态</th><th>版本</th><th>端口</th><th>访问</th></tr></table>
+<table id="apps"><tr><th>应用</th><th>状态</th><th>版本</th><th>端口</th><th>访问</th></tr></table>
 <h2>应用日志（点应用查看）</h2>
 <pre id="applog">点击应用行的"日志"链接</pre>
 <h2>最近审计</h2>
 <pre id="audit"></pre>
 <script>
 function api(path){return fetch(path,{headers:{Authorization:'Bearer '+document.getElementById('token').value}}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json()})}
-function showLog(p,a){api('/api/apps/'+p+'/'+a+'/applog').then(d=>document.getElementById('applog').textContent=d.logs||'(空)').catch(e=>document.getElementById('applog').textContent='加载失败')}
+function showLog(a){api('/api/apps/'+a+'/applog').then(d=>document.getElementById('applog').textContent=d.logs||'(空)').catch(e=>document.getElementById('applog').textContent='加载失败')}
 function load(){
   document.getElementById('msg').textContent='';
   api('/api/apps-list').then(list=>{
     const t=document.getElementById('apps');
-    t.innerHTML='<tr><th>项目</th><th>应用</th><th>状态</th><th>版本</th><th>端口</th><th>访问</th></tr>';
+    t.innerHTML='<tr><th>应用</th><th>状态</th><th>版本</th><th>端口</th><th>访问</th></tr>';
     list.forEach(a=>{
       const tr=document.createElement('tr');
-      tr.innerHTML='<td>'+a.project_id+'</td><td>'+a.app_name+'</td><td>'+a.status+'</td><td>'+a.current_version+'</td><td>'+a.port+'</td><td><a href="'+a.access_url+'">打开</a> <a href="#" onclick="showLog(\''+a.project_id+'\',\''+a.app_name+'\');return false">日志</a></td>';
+      tr.innerHTML='<td>'+a.app_name+'</td><td>'+a.status+'</td><td>'+a.current_version+'</td><td>'+a.port+'</td><td><a href="'+a.access_url+'">打开</a> <a href="#" onclick="showLog(\''+a.app_name+'\');return false">日志</a></td>';
       t.appendChild(tr);
     });
   }).catch(e=>document.getElementById('msg').textContent='加载失败: '+e.message);
@@ -59,26 +59,19 @@ func (s *Server) handleStatusPage(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprint(w, statusPageHTML)
 }
 
-// handleAppsList GET /api/apps-list — 状态页用的应用列表（需 Token）。
+// handleAppsList GET /api/apps — 应用列表（需 Token）。
 func (s *Server) handleAppsList(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.store.DB.Query(`SELECT project_id,name,status,current_version,port,root_path FROM apps ORDER BY project_id,name`)
+	apps, err := s.store.ListApps()
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	defer rows.Close()
 	out := []map[string]any{}
-	for rows.Next() {
-		var project, name, status, version, root string
-		var port int
-		if err := rows.Scan(&project, &name, &status, &version, &port, &root); err != nil {
-			writeErr(w, http.StatusInternalServerError, err)
-			return
-		}
+	for _, app := range apps {
 		out = append(out, map[string]any{
-			"project_id": project, "app_name": name, "status": status,
-			"current_version": version, "port": port,
-			"access_url": "http://" + r.Host + root,
+			"id": app.ID, "app_name": app.Name, "status": app.Status,
+			"current_version": app.CurrentVersion, "port": app.Port,
+			"access_url": "http://" + r.Host + app.RootPath,
 		})
 	}
 	writeJSON(w, http.StatusOK, out)

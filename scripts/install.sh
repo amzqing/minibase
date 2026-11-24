@@ -60,6 +60,11 @@ echo "[4/7] 生成 Token 与配置"
 if [ -z "$TOKEN" ]; then
   TOKEN="$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 fi
+if command -v sha256sum >/dev/null 2>&1; then
+  TOKEN_HASH="sha256:$(printf '%s' "$TOKEN" | sha256sum | awk '{print $1}')"
+else
+  TOKEN_HASH="sha256:$(printf '%s' "$TOKEN" | shasum -a 256 | awk '{print $1}')"
+fi
 if [ -z "$MASTER_KEY" ]; then
   MASTER_KEY="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 fi
@@ -69,7 +74,7 @@ else
   cat > /etc/minibase/config.json <<CFG_EOF
 {
   "listen_addr": "$LISTEN",
-  "token": "$TOKEN",
+  "token_hash": "$TOKEN_HASH",
   "data_dir": "/var/lib/minibase/data",
   "port_start": 30000,
   "port_end": 30100,

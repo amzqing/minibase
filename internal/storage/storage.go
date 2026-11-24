@@ -17,10 +17,10 @@ import (
 
 // Store 对象存储接口。将来接 S3 只需换实现，应用代码不用改。
 type Store interface {
-	Put(projectID, appName, fileName, contentType string, data []byte) (string, error)
-	Get(projectID, appName, id string) ([]byte, string, error)
-	Delete(projectID, appName, id string) error
-	List(projectID, appName string) ([]*database.Object, error)
+	Put(appName, fileName, contentType string, data []byte) (string, error)
+	Get(appName, id string) ([]byte, string, error)
+	Delete(appName, id string) error
+	List(appName string) ([]*database.Object, error)
 }
 
 // LocalStore 本机磁盘实现。
@@ -29,16 +29,14 @@ type LocalStore struct {
 	store *database.Store
 }
 
-// NewLocalStore 创建本机存储。
 func NewLocalStore(cfg *config.Config, store *database.Store) *LocalStore {
 	return &LocalStore{cfg: cfg, store: store}
 }
 
-func (l *LocalStore) dir(projectID, appName string) string {
-	return filepath.Join(l.cfg.DataDir, "objects", projectID, appName)
+func (l *LocalStore) dir(appName string) string {
+	return filepath.Join(l.cfg.DataDir, "objects", appName)
 }
 
-// bannedExt 禁止的可执行文件扩展名。
 var bannedExt = map[string]bool{
 	".exe": true, ".sh": true, ".bash": true, ".bin": true,
 	".so": true, ".dll": true, ".app": true, ".deb": true,
@@ -46,12 +44,7 @@ var bannedExt = map[string]bool{
 	".ps1": true, ".com": true, ".scr": true,
 }
 
-// bannedMagic 禁止的文件头魔数（ELF / PE / shebang 脚本）。
-var bannedMagic = [][]byte{
-	{0x7f, 'E', 'L', 'F'},
-	{'M', 'Z'},
-	{'#', '!', '/'},
-}
+var bannedMagic = [][]byte{{0x7f, 'E', 'L', 'F'}, {'M', 'Z'}, {'#', '!', '/'}}
 
 func allowedFile(fileName string, data []byte) error {
 	ext := strings.ToLower(filepath.Ext(fileName))
@@ -72,14 +65,14 @@ func randomFileID() string {
 	return hex.EncodeToString(b)
 }
 
-func (l *LocalStore) Put(projectID, appName, fileName, contentType string, data []byte) (string, error) {
+func (l *LocalStore) Put(appName, fileName, contentType string, data []byte) (string, error) {
 	if err := allowedFile(fileName, data); err != nil {
 		return "", err
 	}
 	if int64(len(data)) > l.cfg.StorageMaxFileMB*1024*1024 {
 		return "", fmt.Errorf("文件大小超过上限 %d MB", l.cfg.StorageMaxFileMB)
 	}
-	appSize, err := l.store.AppObjectSize(projectID, appName)
+	appSize, err := l.store.AppObjectSize(appName)
 	if err != nil {
 		return "", err
 	}
@@ -93,60 +86,44 @@ func (l *LocalStore) Put(projectID, appName, fileName, contentType string, data 
 	if total+int64(len(data)) > l.cfg.StorageMaxMBTotal*1024*1024 {
 		return "", fmt.Errorf("系统存储容量已满")
 	}
-
 	id := randomFileID()
-	dir := l.dir(projectID, appName)
+	dir := l.dir(appName)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, id)
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, id), data, 0o644); err != nil {
 		return "", err
 	}
-
-	obj := &database.Object{
-		ID: id, ProjectID: projectID, AppName: appName,
-		FileName: fileName, Size: int64(len(data)), ContentType: contentType,
-		CreatedAt: nowUnix(),
-	}
+	obj := &database.Object{ID: id, AppName: appName, FileName: fileName,
+		Size: int64(len(data)), ContentType: contentType, CreatedAt: time.Now().Unix()}
 	if err := l.store.InsertObject(obj); err != nil {
-		_ = os.Remove(path)
+		_ = os.Remove(filepath.Join(dir, id))
 		return "", err
 	}
 	return id, nil
 }
 
-func (l *LocalStore) Get(projectID, appName, id string) ([]byte, string, error) {
-	obj, err := l.store.GetObject(projectID, appName, id)
-	if err != nil {
-		return nil, "", err
-	}
-	if obj == nil {
+func (l *LocalStore) Get(appName, id string) ([]byte, string, error) {
+	obj, err := l.store.GetObject(appName, id)
+	if err != nil || obj == nil {
 		return nil, "", fmt.Errorf("文件不存在")
 	}
-	data, err := os.ReadFile(filepath.Join(l.dir(projectID, appName), id))
-	if err != nil {
-		return nil, "", err
-	}
-	return data, obj.ContentType, nil
+	data, err := os.ReadFile(filepath.Join(l.dir(appName), id))
+	return data, obj.ContentType, err
 }
 
-func (l *LocalStore) Delete(projectID, appName, id string) error {
-	obj, err := l.store.GetObject(projectID, appName, id)
-	if err != nil {
-		return err
-	}
-	if obj == nil {
+func (l *LocalStore) Delete(appName, id string) error {
+	obj, err := l.store.GetObject(appName, id)
+	if err != nil || obj == nil {
 		return fmt.Errorf("文件不存在")
 	}
-	if err := os.Remove(filepath.Join(l.dir(projectID, appName), id)); err != nil && !os.IsNotExist(err) {
+	path := filepath.Join(l.dir(appName), id)
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	return l.store.DeleteObject(projectID, appName, id)
+	return l.store.DeleteObject(appName, id)
 }
 
-func (l *LocalStore) List(projectID, appName string) ([]*database.Object, error) {
-	return l.store.ListObjects(projectID, appName)
+func (l *LocalStore) List(appName string) ([]*database.Object, error) {
+	return l.store.ListObjects(appName)
 }
-
-func nowUnix() int64 { return time.Now().Unix() }

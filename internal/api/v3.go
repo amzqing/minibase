@@ -12,21 +12,13 @@ import (
 	"minibase/internal/database"
 )
 
-// handleEnv API: POST /api/apps/<项目ID>/<应用名>/env  查用 GET
-func (s *Server) handleEnv(w http.ResponseWriter, r *http.Request) {
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/apps/"), "/")
-	if len(parts) < 3 || parts[2] != "env" {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("路径格式错误"))
-		return
-	}
-	app, err := s.store.GetAppByName(parts[0], parts[1])
+func (s *Server) handleEnv(w http.ResponseWriter, r *http.Request, appName string) {
+	app, err := s.store.GetAppByName(appName)
 	if err != nil || app == nil {
 		writeErr(w, http.StatusNotFound, fmt.Errorf("应用不存在"))
 		return
 	}
 	if r.Method == http.MethodPost {
-		// 统一机制：普通变量和密钥走同一个 API。
-		// body: {"KEY":"value", ..., "_secret":["KEY2"]} — _secret 列出的键加密存 secrets 表。
 		var body map[string]json.RawMessage
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeErr(w, http.StatusBadRequest, err)
@@ -61,7 +53,8 @@ func (s *Server) handleEnv(w http.ResponseWriter, r *http.Request) {
 					writeErr(w, http.StatusInternalServerError, err)
 					return
 				}
-				if err := s.store.SaveSecret(&database.Secret{AppID: app.ID, Key: k, EncryptedValue: enc, Version: "", CreatedAt: time.Now().Unix()}); err != nil {
+				if err := s.store.SaveSecret(&database.Secret{AppID: app.ID, Key: k, EncryptedValue: enc,
+					Version: "", CreatedAt: time.Now().Unix()}); err != nil {
 					writeErr(w, http.StatusInternalServerError, err)
 					return
 				}
@@ -76,7 +69,6 @@ func (s *Server) handleEnv(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "count": count, "notice": "下次部署生效"})
 		return
 	}
-	// GET: 列出全部变量，密钥值用 <encrypted> 占位
 	envs, _ := s.store.GetAppEnv(app.ID, "")
 	out := []map[string]any{}
 	for _, e := range envs {
@@ -89,46 +81,148 @@ func (s *Server) handleEnv(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// handleDown DELETE /api/apps/<项目ID>/<应用名>
-func (s *Server) handleDown(w http.ResponseWriter, r *http.Request) {
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/apps/"), "/")
-	if len(parts) != 2 {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("路径格式错误"))
-		return
-	}
-	if err := s.deployer.Down(parts[0], parts[1]); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "notice": "端口已回收"})
+// logLine 是给管控面板展示的结构化日志行。
+type logLine struct {
+	Time    string `json:"time"`
+	Level   string `json:"level"`
+	Message string `json:"message"`
+	Raw     string `json:"raw"`
 }
 
-// handleAppLog GET /api/apps/<项目ID>/<应用名>/applog — 返回应用日志尾部
-func (s *Server) handleAppLog(w http.ResponseWriter, r *http.Request) {
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/apps/"), "/")
-	if len(parts) < 3 || parts[2] != "applog" {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("路径格式错误"))
-		return
-	}
-	app, err := s.store.GetAppByName(parts[0], parts[1])
+// handleAppLog 返回应用日志：原始文本 + 结构化行，供表格展示。
+func (s *Server) handleAppLog(w http.ResponseWriter, _ *http.Request, appName string) {
+	app, err := s.store.GetAppByName(appName)
 	if err != nil || app == nil {
 		writeErr(w, http.StatusNotFound, fmt.Errorf("应用不存在"))
 		return
 	}
-	// 找当前版本目录的 app.log
+	content := ""
 	ver, _ := s.store.GetVersion(app.ID, app.CurrentVersion)
-	if ver == nil || ver.SourceDir == "" {
-		writeJSON(w, http.StatusOK, map[string]any{"logs": ""})
-		return
+	if ver != nil && ver.SourceDir != "" {
+		if b, readErr := os.ReadFile(filepath.Join(ver.SourceDir, "app.log")); readErr == nil {
+			content = string(b)
+		}
 	}
-	b, err := os.ReadFile(filepath.Join(ver.SourceDir, "app.log"))
-	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"logs": ""})
-		return
-	}
-	content := string(b)
 	if len(content) > 8192 {
 		content = content[len(content)-8192:]
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"logs": content})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"logs":  content,
+		"lines": parseLogLines(content),
+	})
+}
+
+// parseLogLines 把纯文本日志解析成表格行。识别 JSON 日志、时间戳前缀和级别标记；
+// 识别不出来的行原样作为 INFO 内容，不丢数据。
+func parseLogLines(content string) []logLine {
+	out := make([]logLine, 0)
+	for _, raw := range strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n") {
+		if raw == "" {
+			continue
+		}
+		line := parseLogLine(raw)
+		out = append(out, line)
+	}
+	return out
+}
+
+func parseLogLine(raw string) logLine {
+	line := logLine{Level: "INFO", Message: raw, Raw: raw}
+
+	// JSON 日志：{"time":"...","level":"error","msg":"..."}
+	var obj map[string]any
+	if json.Unmarshal([]byte(raw), &obj) == nil {
+		pick := func(keys ...string) string {
+			for _, k := range keys {
+				if v, ok := obj[k]; ok {
+					if str, ok := v.(string); ok {
+						return str
+					}
+				}
+			}
+			return ""
+		}
+		t := pick("time", "timestamp", "@timestamp", "ts")
+		lv := pick("level", "lvl", "severity")
+		msg := pick("msg", "message", "log")
+		if msg == "" {
+			b, _ := json.Marshal(obj)
+			msg = string(b)
+		}
+		if t != "" {
+			line.Time = normalizeLogTime(t)
+		}
+		if lv != "" {
+			line.Level = normalizeLogLevel(lv)
+		}
+		line.Message = msg
+		return line
+	}
+
+	rest := strings.TrimSpace(raw)
+	// 方括号级别：[ERROR] xxx
+	if strings.HasPrefix(rest, "[") {
+		if end := strings.Index(rest, "]"); end > 1 {
+			level := strings.ToUpper(strings.TrimSpace(rest[1:end]))
+			if isLogLevel(level) {
+				line.Level = level
+				rest = strings.TrimSpace(rest[end+1:])
+			}
+		}
+	}
+
+	// 时间戳前缀：2026-11-24T10:00:00Z / 2026-11-24 10:00:00 / 2026/11/24 10:00:00
+	if len(rest) >= 19 {
+		candidate := rest[:19]
+		if _, err := time.Parse("2006-01-02T15:04:05", candidate); err == nil ||
+			(len(candidate) == 19 && candidate[4] == '-' && candidate[7] == '-' && candidate[10] == ' ') {
+			line.Time = normalizeLogTime(candidate)
+			rest = strings.TrimSpace(rest[19:])
+		}
+	}
+
+	// 裸级别前缀：INFO xxx / ERROR: xxx
+	if fields := strings.Fields(rest); len(fields) > 0 {
+		level := strings.ToUpper(strings.Trim(fields[0], "[:"))
+		if isLogLevel(level) {
+			line.Level = level
+			rest = strings.TrimSpace(strings.TrimPrefix(rest, fields[0]))
+		}
+	}
+
+	if rest != "" {
+		line.Message = rest
+	}
+	return line
+}
+
+func normalizeLogTime(value string) string {
+	for _, layout := range []string{
+		time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05",
+		"2006-01-02 15:04:05", "2006/01/02 15:04:05",
+	} {
+		if t, err := time.Parse(layout, value); err == nil {
+			return t.Format("01-02 15:04:05")
+		}
+	}
+	return value
+}
+
+func isLogLevel(level string) bool {
+	switch strings.ToUpper(level) {
+	case "TRACE", "DEBUG", "INFO", "WARN", "WARNING", "ERROR", "FATAL", "PANIC":
+		return true
+	}
+	return false
+}
+
+func normalizeLogLevel(value string) string {
+	level := strings.ToUpper(strings.TrimSpace(value))
+	if level == "WARNING" {
+		return "WARN"
+	}
+	if !isLogLevel(level) {
+		return "INFO"
+	}
+	return level
 }

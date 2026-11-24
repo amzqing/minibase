@@ -1,5 +1,5 @@
 // Package proxy 把外部请求按应用根路径转发到应用监听的端口。
-// 只动路径：剥掉 /apps/<项目ID>/<应用名> 前缀，别的都不碰。
+// 只动路径：剥掉 /apps/<应用名> 前缀，别的都不碰。
 package proxy
 
 import (
@@ -33,10 +33,10 @@ func New(store *database.Store) *Proxy {
 // 匹配不上返回空根路径。
 func MatchRoot(path string) (root, rest string) {
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
-	if len(parts) < 3 || parts[0] != "apps" || parts[1] == "" || parts[2] == "" {
+	if len(parts) < 2 || parts[0] != "apps" || parts[1] == "" {
 		return "", ""
 	}
-	root = "/apps/" + parts[1] + "/" + parts[2]
+	root = "/apps/" + parts[1]
 	rest = strings.TrimPrefix(path, root)
 	if rest == "" {
 		rest = "/"
@@ -64,11 +64,30 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 跨项目隔离：带 X-MiniBase-From 头时，只允许同项目应用互相调用。
+	// 应用间调用：带 X-MiniBase-From 头时，只允许来源应用与目标应用一致。
 	// 无头视为外部浏览器访问，保持原有行为不变。
-	if !AllowedBySource(r.Header.Get("X-MiniBase-From"), app.ProjectID) {
-		http.Error(w, "跨项目调用被拒绝", http.StatusForbidden)
+	if !AllowedBySource(r.Header.Get("X-MiniBase-From"), app.Name) {
+		http.Error(w, "跨应用调用被拒绝", http.StatusForbidden)
 		return
+	}
+
+	// CORS：预检直接回 204；浏览器跨域请求必须匹配应用白名单。
+	origin := r.Header.Get("Origin")
+	if r.Method == http.MethodOptions && origin != "" {
+		if p.allowedOrigin(app.Name, origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-MiniBase-From")
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if origin != "" && !p.allowedOrigin(app.Name, origin) {
+		http.Error(w, "跨域请求被拒绝", http.StatusForbidden)
+		return
+	}
+	if origin != "" {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
 	}
 
 	out := r.Clone(r.Context())
@@ -81,7 +100,38 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p.rp.ServeHTTP(w, out)
 }
 
-// AllowedBySource 检查来源头：无头放行（外部访问），有头时只允许同项目。
-func AllowedBySource(from, targetProject string) bool {
-	return from == "" || from == targetProject
+// AllowedBySource 检查来源头：无头放行（外部访问），有头时只允许同应用。
+func AllowedBySource(from, targetApp string) bool {
+	return from == "" || from == targetApp
+}
+
+// allowedOrigin 检查 Origin 是否在应用白名单里。支持 *.example.com 通配。
+func (p *Proxy) allowedOrigin(appName, origin string) bool {
+	domains, err := p.store.ListCorsDomains(appName)
+	if err != nil {
+		return false
+	}
+	for _, d := range domains {
+		pattern := d.Domain
+		if pattern == origin || pattern == "*" {
+			return true
+		}
+		if strings.HasPrefix(pattern, "*.") {
+			suffix := strings.TrimPrefix(pattern, "*")
+			if rest, ok := cutOriginHost(origin); ok && strings.HasSuffix(rest, suffix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// cutOriginHost 从 Origin 里取 host:port 部分。
+func cutOriginHost(origin string) (string, bool) {
+	rest := strings.TrimPrefix(origin, "http://")
+	rest = strings.TrimPrefix(rest, "https://")
+	if rest == origin {
+		return "", false
+	}
+	return rest, true
 }

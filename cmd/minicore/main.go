@@ -74,10 +74,16 @@ func main() {
 		if ver.EnvJSON != "" {
 			_ = json.Unmarshal([]byte(ver.EnvJSON), &env)
 		}
-		handle, err := runner.Start(ver.SourceDir, ver.StartCmd, env, ver.Port)
+		startCmd := ver.StartCmd
+		mem, cpu, _, override := deployer.EffectiveConfig(app.ID)
+		if override != "" {
+			startCmd = override
+		}
+		handle, err := runner.Start(ver.SourceDir, startCmd, env, ver.Port)
 		if err != nil {
 			return err
 		}
+		_ = limiter.Apply(handle.PID, ver.SourceDir, mem, cpu)
 		deployer.AttachHandle(app.ID+"/"+ver.Version, handle)
 		return nil
 	})

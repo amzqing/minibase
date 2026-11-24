@@ -54,8 +54,8 @@ func TestGap_DiskCheck(t *testing.T) {
 // G4: 启动对账检查应用状态
 func TestGap_ReconcileAppStatus(t *testing.T) {
 	env := newEnv(t, &fakeRunner{mode: "ok"})
-	env.deploy(t, fixture("hello.zip"), "shop", "proj_a", "a")
-	app, _ := env.store.GetAppByName("proj_a", "shop")
+	env.deploy(t, fixture("hello.zip"), "shop", "a")
+	app, _ := env.store.GetAppByName("shop")
 	// 模拟 Core 重启：把状态设为运行中但端口没人监听
 	_ = env.store.UpdateAppStatus(app.ID, "运行中")
 	report, err := env.store.Reconcile()
@@ -64,7 +64,7 @@ func TestGap_ReconcileAppStatus(t *testing.T) {
 	}
 	// 端口实际有 fakeRunner 在监听，所以不应标为 stale
 	for _, s := range report.StaleRunning {
-		if s == "proj_a/shop" {
+		if s == "shop" {
 			t.Fatal("正常应用被误标 stale")
 		}
 	}

@@ -95,11 +95,15 @@ func (m *Monitor) scan() {
 			continue
 		}
 
-		// 检查资源用量：内存快超上限时按中度响应处理
+		// 检查资源用量：内存快超上限时按中度响应处理（per-app 覆盖优先）
 		usedMB := ReadMemoryUsage(m.cfg.CgroupRoot, ver.SourceDir) / 1024 / 1024
-		threshold := MemoryThresholdMB(m.cfg.MemoryLimitMB)
+		limitMB := m.cfg.MemoryLimitMB
+		if oc, err := m.store.GetAppConfig(app.ID); err == nil && oc != nil && oc.MemoryLimitMB != nil {
+			limitMB = *oc.MemoryLimitMB
+		}
+		threshold := MemoryThresholdMB(limitMB)
 		if usedMB > 0 && usedMB > threshold {
-			m.handleFailure(app, ver, fmt.Sprintf("内存快超上限: %dMB / %dMB", usedMB, m.cfg.MemoryLimitMB))
+			m.handleFailure(app, ver, fmt.Sprintf("内存快超上限: %dMB / %dMB", usedMB, limitMB))
 			continue
 		}
 
@@ -117,7 +121,7 @@ func (m *Monitor) scan() {
 			if app.Status == "不健康" {
 				_ = m.store.UpdateAppStatus(app.ID, "运行中")
 				_ = m.store.InsertCallLog(&database.CallLog{
-					AppID: app.ID, ProjectID: app.ProjectID, Event: "状态变化",
+					AppID: app.ID, Event: "状态变化",
 					FromStatus: "不健康", ToStatus: "运行中", Reason: "探测恢复",
 					CreatedAt: time.Now().Unix(),
 				})
@@ -138,7 +142,7 @@ func (m *Monitor) handleFailure(app *database.App, ver *database.Version, reason
 	}
 	if app.Status != "不健康" {
 		_ = m.store.InsertCallLog(&database.CallLog{
-			AppID: app.ID, ProjectID: app.ProjectID, Event: "状态变化",
+			AppID: app.ID, Event: "状态变化",
 			FromStatus: app.Status, ToStatus: "不健康", Reason: reason,
 			CreatedAt: time.Now().Unix(),
 		})
@@ -155,7 +159,7 @@ func (m *Monitor) handleFailure(app *database.App, ver *database.Version, reason
 	if app.RestartCount >= m.cfg.MaxRestarts {
 		_ = m.store.UpdateAppStatus(app.ID, "失败")
 		_ = m.store.InsertCallLog(&database.CallLog{
-			AppID: app.ID, ProjectID: app.ProjectID, Event: "停止重启",
+			AppID: app.ID, Event: "停止重启",
 			FromStatus: "不健康", ToStatus: "失败", Reason: "崩溃循环达到上限",
 			CreatedAt: now,
 		})
@@ -166,7 +170,7 @@ func (m *Monitor) handleFailure(app *database.App, ver *database.Version, reason
 	// 中度响应：重启应用
 	_ = m.store.SetAppRestartInfo(app.ID, app.RestartCount+1, windowStart)
 	_ = m.store.InsertCallLog(&database.CallLog{
-		AppID: app.ID, ProjectID: app.ProjectID, Event: "重启应用",
+		AppID: app.ID, Event: "重启应用",
 		FromStatus: "不健康", ToStatus: "启动中", Reason: reason,
 		CreatedAt: now,
 	})
@@ -175,7 +179,7 @@ func (m *Monitor) handleFailure(app *database.App, ver *database.Version, reason
 		if err := m.restartFn(app, ver); err != nil {
 			_ = m.store.UpdateAppStatus(app.ID, "失败")
 			_ = m.store.InsertCallLog(&database.CallLog{
-				AppID: app.ID, ProjectID: app.ProjectID, Event: "重启失败",
+				AppID: app.ID, Event: "重启失败",
 				FromStatus: "启动中", ToStatus: "失败", Reason: err.Error(),
 				CreatedAt: time.Now().Unix(),
 			})

@@ -1,10 +1,12 @@
 openapi: 3.0.3
 info:
   title: MiniBase 管控 API
-  version: 1.0.0
-  description: 'MiniBase 管控面 API。包含健康检查、部署、应用管理、项目数据库 CRUD、对象存储、日志审计。应用流量转发 `/apps/...`
-    和公开文件访问 `/files/...` 不在本文件范围内。除 `/health` 外，所有 `/api/...` 接口都需要 `Authorization:
-    Bearer <token>`。'
+  version: 2.0.0
+  description: |
+    MiniBase 管控面 API。应用是唯一顶层资源；数据库、文件、密钥都归应用。
+    路径规则：资源用 HTTP 方法表达动作（GET 查 / PUT 改 / DELETE 删），命令用 /actions/ 后缀。
+    应用流量 /apps/... 和公开文件 /files/... 不在本文件范围内。
+    除 /api/system/health 外，所有接口需要 Authorization: Bearer <token>。
 servers:
 - url: http://{host}:{port}
   description: MiniBase Core
@@ -18,797 +20,403 @@ servers:
 security:
 - bearerAuth: []
 tags:
-- name: 运维
-  description: 健康检查
-- name: 部署
-  description: 上传 zip 并部署应用
+- name: 系统
+  description: 健康检查、资源用量、审计账本、日志开关、Token 轮换
 - name: 应用管理
-  description: 状态、回滚、环境变量、密钥、下线
-- name: 日志与审计
-  description: 应用日志、日志开关、审计账本
+  description: 部署、查询、编辑、删除、环境变量、密钥、版本、日志、用量
 - name: 数据库
-  description: 项目业务数据 CRUD
-- name: 对象存储
-  description: 本机对象存储上传、下载、删除、列表
+  description: 库、表、索引结构管理
+- name: 文件存储
+  description: 应用文件上传、下载、列表、删除
+- name: 安全
+  description: 应用级 CORS 白名单
 paths:
-  /health:
+  /api/system/health:
     get:
-      tags:
-      - 运维
+      tags: [系统]
       summary: 健康检查
       operationId: health
-      responses:
-        '200':
-          description: Core 正常
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Health'
       security: []
-  /api/deploy:
-    post:
-      tags:
-      - 部署
-      summary: 部署 zip 项目
-      operationId: deploy
       responses:
-        '200':
-          description: 部署成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DeployResult'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/DeployRequest'
-  /api/status/{app}:
+        '200': {description: Core 正常}
+  /api/system/usage:
     get:
-      tags:
-      - 应用管理
-      summary: 按应用名查状态
-      operationId: getStatusByName
+      tags: [系统]
+      summary: 系统资源用量总览
+      operationId: getUsage
       responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AppStatus'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
-        '404':
-          $ref: '#/components/responses/NotFound'
+        '200': {description: 成功}
+  /api/system/audit:
+    get:
+      tags: [系统]
+      summary: 审计账本
+      operationId: listAuditLogs
       parameters:
-      - name: app
-        in: path
-        required: true
-        description: 应用名
-        schema:
-          type: string
-  /api/apps-list:
-    get:
-      tags:
-      - 应用管理
-      summary: 应用列表
-      operationId: listApps
+      - {name: limit, in: query, schema: {type: integer, default: 100}}
       responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/AppListItem'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /api/logs/{app}:
+        '200': {description: 成功}
+  /api/system/log-control:
     get:
-      tags:
-      - 日志与审计
-      summary: 版本一兼容日志接口
-      operationId: getLegacyAppLogs
-      responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/LegacyLog'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
-        '404':
-          $ref: '#/components/responses/NotFound'
-      description: 版本一保留接口，当前返回空日志和提示，实际应用日志用 `/api/apps/{projectId}/{appName}/applog`。
-      parameters:
-      - name: app
-        in: path
-        required: true
-        description: 应用名
-        schema:
-          type: string
-  /api/logs/control:
-    get:
-      tags:
-      - 日志与审计
+      tags: [系统]
       summary: 查询日志开关
       operationId: getLogControl
       responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/LogControlStatus'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
+        '200': {description: 成功}
     post:
-      tags:
-      - 日志与审计
+      tags: [系统]
       summary: 设置日志开关
       operationId: setLogControl
       responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Ok'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/LogControlRequest'
-  /api/logs/audit:
-    get:
-      tags:
-      - 日志与审计
-      summary: 查询审计账本
-      operationId: listAuditLogs
-      responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/AuditLog'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
-      parameters:
-      - name: limit
-        in: query
-        required: false
-        description: 最多返回条数，默认 100
-        schema:
-          type: integer
-          default: 100
-          minimum: 1
-  /api/data/{projectId}/{table}:
-    get:
-      tags:
-      - 数据库
-      summary: 查询记录
-      operationId: dataList
-      responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/DataRow'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
-        '404':
-          $ref: '#/components/responses/NotFound'
-      description: 除 `limit` 外，其他查询参数会作为字段名等值条件。字段名需匹配 `^[A-Za-z_][A-Za-z0-9_]*$`。
-      parameters:
-      - name: projectId
-        in: path
-        required: true
-        description: 项目 ID
-        schema:
-          type: string
-      - name: table
-        in: path
-        required: true
-        description: 表名
-        schema:
-          type: string
-      - name: limit
-        in: query
-        required: false
-        description: 最多返回条数，默认 100
-        schema:
-          type: integer
-          default: 100
-          minimum: 1
+        '200': {description: 成功}
+  /api/system/token/rotate:
     post:
-      tags:
-      - 数据库
-      summary: 插入记录
-      operationId: dataCreate
+      tags: [系统]
+      summary: 轮换管理员 Token
+      operationId: rotateToken
       responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/WriteResult'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
-        '404':
-          $ref: '#/components/responses/NotFound'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/DataWrite'
-      parameters:
-      - name: projectId
-        in: path
-        required: true
-        description: 项目 ID
-        schema:
-          type: string
-      - name: table
-        in: path
-        required: true
-        description: 表名
-        schema:
-          type: string
-  /api/data/{projectId}/{table}/{id}:
+        '200': {description: 成功，返回新 Token}
+  /api/apps:
     get:
-      tags:
-      - 数据库
-      summary: 按 ID 查询记录
-      operationId: dataGet
-      responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/DataRow'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
-        '404':
-          $ref: '#/components/responses/NotFound'
+      tags: [应用管理]
+      summary: 应用列表
+      operationId: listApps
       parameters:
-      - name: projectId
-        in: path
-        required: true
-        description: 项目 ID
-        schema:
-          type: string
-      - name: table
-        in: path
-        required: true
-        description: 表名
-        schema:
-          type: string
-      - name: id
-        in: path
-        required: true
-        description: 记录 ID
-        schema:
-          type: string
-    put:
-      tags:
-      - 数据库
-      summary: 更新记录
-      operationId: dataUpdate
       responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UpdateResult'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
-        '404':
-          $ref: '#/components/responses/NotFound'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/DataWrite'
-      parameters:
-      - name: projectId
-        in: path
-        required: true
-        description: 项目 ID
-        schema:
-          type: string
-      - name: table
-        in: path
-        required: true
-        description: 表名
-        schema:
-          type: string
-      - name: id
-        in: path
-        required: true
-        description: 记录 ID
-        schema:
-          type: string
-    delete:
-      tags:
-      - 数据库
-      summary: 删除记录
-      operationId: dataDelete
-      responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Ok'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
-        '404':
-          $ref: '#/components/responses/NotFound'
-      parameters:
-      - name: projectId
-        in: path
-        required: true
-        description: 项目 ID
-        schema:
-          type: string
-      - name: table
-        in: path
-        required: true
-        description: 表名
-        schema:
-          type: string
-      - name: id
-        in: path
-        required: true
-        description: 记录 ID
-        schema:
-          type: string
-  /api/storage/upload/{projectId}/{appName}:
+        '200': {description: 成功}
     post:
-      tags:
-      - 对象存储
-      summary: 上传文件
-      operationId: storageUpload
-      responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StorageUploadResult'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
-        '404':
-          $ref: '#/components/responses/NotFound'
+      tags: [应用管理]
+      summary: 部署应用（上传 zip）
+      operationId: deploy
+      parameters:
       requestBody:
         required: true
         content:
           multipart/form-data:
-            schema:
-              type: object
-              required:
-              - file
-              properties:
-                file:
-                  type: string
-                  format: binary
-      parameters:
-      - name: projectId
-        in: path
-        required: true
-        description: 项目 ID
-        schema:
-          type: string
-      - name: appName
-        in: path
-        required: true
-        description: 应用名
-        schema:
-          type: string
-  /api/storage/download/{projectId}/{appName}/{fileId}:
+            schema: {$ref: '#/components/schemas/DeployRequest'}
+      responses:
+        '200': {description: 成功}
+  /api/apps/{appId}:
     get:
-      tags:
-      - 对象存储
-      summary: 下载文件
-      operationId: storageDownload
-      responses:
-        '200':
-          description: 文件内容
-          content:
-            application/octet-stream:
-              schema:
-                type: string
-                format: binary
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
-        '404':
-          $ref: '#/components/responses/NotFound'
+      tags: [应用管理]
+      summary: 应用详情
+      operationId: getApp
       parameters:
-      - name: projectId
-        in: path
-        required: true
-        description: 项目 ID
-        schema:
-          type: string
-      - name: appName
-        in: path
-        required: true
-        description: 应用名
-        schema:
-          type: string
-      - name: fileId
-        in: path
-        required: true
-        description: 文件 ID
-        schema:
-          type: string
-  /api/storage/delete/{projectId}/{appName}/{fileId}:
-    delete:
-      tags:
-      - 对象存储
-      summary: 删除文件
-      operationId: storageDelete
+      - {name: appId, in: path, required: true, schema: {type: string}}
       responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Ok'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
-        '404':
-          $ref: '#/components/responses/NotFound'
+        '200': {description: 成功}
+    put:
+      tags: [应用管理]
+      summary: 编辑应用配置（需先停止）
+      operationId: updateApp
       parameters:
-      - name: projectId
-        in: path
-        required: true
-        description: 项目 ID
-        schema:
-          type: string
-      - name: appName
-        in: path
-        required: true
-        description: 应用名
-        schema:
-          type: string
-      - name: fileId
-        in: path
-        required: true
-        description: 文件 ID
-        schema:
-          type: string
-  /api/storage/list/{projectId}/{appName}:
-    get:
-      tags:
-      - 对象存储
-      summary: 文件列表
-      operationId: storageList
-      responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/StorageObject'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
-        '404':
-          $ref: '#/components/responses/NotFound'
-      parameters:
-      - name: projectId
-        in: path
-        required: true
-        description: 项目 ID
-        schema:
-          type: string
-      - name: appName
-        in: path
-        required: true
-        description: 应用名
-        schema:
-          type: string
-  /api/storage/migrate/{projectId}/{appName}:
-    get:
-      tags:
-      - 对象存储
-      summary: 外部 S3 迁移预留接口
-      operationId: storageMigrate
-      responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StorageMigrateResult'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
-        '404':
-          $ref: '#/components/responses/NotFound'
-      description: 接口预留，当前返回 `not_implemented`。
-      parameters:
-      - name: projectId
-        in: path
-        required: true
-        description: 项目 ID
-        schema:
-          type: string
-      - name: appName
-        in: path
-        required: true
-        description: 应用名
-        schema:
-          type: string
-  /api/apps/{projectId}/{appName}/rollback:
-    post:
-      tags:
-      - 应用管理
-      summary: 回滚到上一个版本
-      operationId: rollback
-      responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RollbackResult'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
-        '404':
-          $ref: '#/components/responses/NotFound'
-      parameters: &id001
-      - name: projectId
-        in: path
-        required: true
-        description: 项目 ID
-        schema:
-          type: string
-      - name: appName
-        in: path
-        required: true
-        description: 应用名
-        schema:
-          type: string
-  /api/apps/{projectId}/{appName}/status:
-    get:
-      tags:
-      - 应用管理
-      summary: 查询应用详细状态
-      operationId: getAppStatus
-      responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AppDetailStatus'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
-        '404':
-          $ref: '#/components/responses/NotFound'
-      parameters: *id001
-  /api/apps/{projectId}/{appName}/secrets:
-    post:
-      tags:
-      - 应用管理
-      summary: 写入加密密钥
-      operationId: setSecrets
-      responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CountResult'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
-        '404':
-          $ref: '#/components/responses/NotFound'
-      description: 推荐统一使用 `/env` 接口的 `_secret` 数组。此接口保留兼容。
+      - {name: appId, in: path, required: true, schema: {type: string}}
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: '#/components/schemas/SecretWrite'
-      parameters: *id001
-  /api/apps/{projectId}/{appName}/env:
+            schema: {$ref: '#/components/schemas/AppConfigWrite'}
+      responses:
+        '200': {description: 成功}
+        '409': {description: 状态不允许}
+    delete:
+      tags: [应用管理]
+      summary: 彻底删除应用
+      operationId: deleteApp
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 成功}
+  /api/apps/{appId}/env:
     get:
-      tags:
-      - 应用管理
+      tags: [应用管理]
       summary: 查询环境变量与密钥
       operationId: getEnv
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
       responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/EnvItem'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
-        '404':
-          $ref: '#/components/responses/NotFound'
-      parameters: *id001
+        '200': {description: 成功}
     post:
-      tags:
-      - 应用管理
+      tags: [应用管理]
       summary: 设置环境变量与密钥
       operationId: setEnv
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      requestBody:
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/EnvWrite'}
       responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EnvSetResult'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
-        '404':
-          $ref: '#/components/responses/NotFound'
+        '200': {description: 成功}
+  /api/apps/{appId}/secrets:
+    get:
+      tags: [应用管理]
+      summary: 查询密钥列表
+      operationId: listSecrets
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 成功}
+    post:
+      tags: [应用管理]
+      summary: 写入加密密钥
+      operationId: setSecrets
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 成功}
+  /api/apps/{appId}/versions:
+    get:
+      tags: [应用管理]
+      summary: 版本列表
+      operationId: listVersions
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 成功}
+  /api/apps/{appId}/deployments:
+    get:
+      tags: [应用管理]
+      summary: 部署与运维历史
+      operationId: listDeployments
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 成功}
+  /api/apps/{appId}/logs:
+    get:
+      tags: [应用管理]
+      summary: 应用日志尾部
+      operationId: getAppLog
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 成功}
+  /api/apps/{appId}/usage:
+    get:
+      tags: [应用管理]
+      summary: 单应用资源用量
+      operationId: getAppUsage
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 成功}
+  /api/apps/{appId}/actions/resume:
+    post:
+      tags: [应用管理]
+      summary: 恢复应用
+      operationId: resumeApp
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 成功}
+        '409': {description: 状态不允许}
+  /api/apps/{appId}/actions/pause:
+    post:
+      tags: [应用管理]
+      summary: 暂停应用（保留数据）
+      operationId: pauseApp
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 成功}
+  /api/apps/{appId}/actions/restart:
+    post:
+      tags: [应用管理]
+      summary: 重启应用
+      operationId: restartApp
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 成功}
+  /api/apps/{appId}/actions/rollback:
+    post:
+      tags: [应用管理]
+      summary: 回滚到上一个版本
+      operationId: rollback
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 成功}
+  /api/apps/{appId}/files:
+    get:
+      tags: [文件存储]
+      summary: 文件列表
+      operationId: storageList
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 成功}
+    post:
+      tags: [文件存储]
+      summary: 上传文件
+      operationId: storageUpload
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      requestBody:
+        content:
+          multipart/form-data:
+            schema: {type: object, properties: {file: {type: string, format: binary}}}
+      responses:
+        '200': {description: 成功}
+  /api/apps/{appId}/files/{fileId}:
+    get:
+      tags: [文件存储]
+      summary: 下载文件
+      operationId: storageDownload
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      - {name: fileId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 成功}
+    delete:
+      tags: [文件存储]
+      summary: 删除文件
+      operationId: storageDelete
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      - {name: fileId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 成功}
+  /api/apps/{appId}/databases:
+    get:
+      tags: [数据库]
+      summary: 库信息
+      operationId: getDatabaseInfo
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 成功}
+    post:
+      tags: [数据库]
+      summary: 新建应用库
+      operationId: createDatabase
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 成功}
+        '409': {description: 库已存在}
+  /api/apps/{appId}/databases/{db}:
+    get:
+      tags: [数据库]
+      summary: 库详情
+      operationId: getDatabase
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 成功}
+    delete:
+      tags: [数据库]
+      summary: 删除库（默认库不可删）
+      operationId: deleteDatabase
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 成功}
+  /api/apps/{appId}/databases/{db}/tables:
+    get:
+      tags: [数据库]
+      summary: 表列表
+      operationId: listTables
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 成功}
+    post:
+      tags: [数据库]
+      summary: 建表
+      operationId: createTable
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: '#/components/schemas/EnvWrite'
-      parameters: *id001
-  /api/apps/{projectId}/{appName}/applog:
+            schema: {$ref: '#/components/schemas/TableCreate'}
+      responses:
+        '200': {description: 成功}
+        '400': {description: 参数错误}
+  /api/apps/{appId}/databases/{db}/tables/{table}:
     get:
-      tags:
-      - 日志与审计
-      summary: 查询应用日志尾部
-      operationId: getAppLog
+      tags: [数据库]
+      summary: 表结构详情
+      operationId: getTable
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      - {name: table, in: path, required: true, schema: {type: string}}
       responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AppLogResult'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
-        '404':
-          $ref: '#/components/responses/NotFound'
-      parameters: *id001
-  /api/apps/{projectId}/{appName}:
+        '200': {description: 成功}
+    put:
+      tags: [数据库]
+      summary: 重命名表
+      operationId: renameTable
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      - {name: table, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 成功}
     delete:
-      tags:
-      - 应用管理
-      summary: 下线应用并回收端口
-      operationId: deleteApp
+      tags: [数据库]
+      summary: 删表
+      operationId: dropTable
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      - {name: table, in: path, required: true, schema: {type: string}}
       responses:
-        '200':
-          description: 成功
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/OkNotice'
-        '400':
-          $ref: '#/components/responses/BadRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '500':
-          $ref: '#/components/responses/InternalError'
-        '404':
-          $ref: '#/components/responses/NotFound'
-      parameters: *id001
+        '200': {description: 成功}
+  /api/apps/{appId}/databases/{db}/tables/{table}/indexes:
+    post:
+      tags: [数据库]
+      summary: 建索引
+      operationId: createIndex
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      - {name: table, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/IndexCreate'}
+      responses:
+        '200': {description: 成功}
+  /api/apps/{appId}/databases/{db}/tables/{table}/indexes/{index}:
+    delete:
+      tags: [数据库]
+      summary: 删索引
+      operationId: dropIndex
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      - {name: table, in: path, required: true, schema: {type: string}}
+      - {name: index, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 成功}
+  /api/apps/{appId}/cors:
+    get:
+      tags: [安全]
+      summary: 查询 CORS 白名单
+      operationId: listCorsDomains
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 成功}
+    post:
+      tags: [安全]
+      summary: 添加 CORS 域名
+      operationId: addCorsDomain
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 成功}
+  /api/apps/{appId}/cors/{id}:
+    delete:
+      tags: [安全]
+      summary: 删除 CORS 域名
+      operationId: deleteCorsDomain
+      parameters:
+      - {name: appId, in: path, required: true, schema: {type: string}}
+      - {name: id, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: 成功}
+
 components:
   securitySchemes:
     bearerAuth:
@@ -868,9 +476,6 @@ components:
         app:
           type: string
           description: 应用名，不传时取 package.json 的 name
-        project:
-          type: string
-          description: 项目 ID，不传时自动生成
         mode:
           type: string
           enum:
@@ -881,8 +486,6 @@ components:
     DeployResult:
       type: object
       properties:
-        project_id:
-          type: string
         app_name:
           type: string
         root_path:
@@ -903,8 +506,6 @@ components:
       type: object
       properties:
         app_name:
-          type: string
-        project_id:
           type: string
         root_path:
           type: string
@@ -929,11 +530,26 @@ components:
           type: string
         notice:
           type: string
+    AppLogLine:
+      type: object
+      properties:
+        time: {type: string, description: "格式化时间，如 11-24 10:30:00"}
+        level: {type: string, description: "TRACE/DEBUG/INFO/WARN/ERROR/FATAL/PANIC"}
+        message: {type: string}
+        raw: {type: string}
+    AppLogResult:
+      type: object
+      properties:
+        logs: {type: string, description: 原始日志文本}
+        lines:
+          type: array
+          items: {$ref: '#/components/schemas/AppLogLine'}
     AppListItem:
       type: object
       properties:
-        project_id:
+        id:
           type: string
+          description: 应用 ID，管控面板路径使用
         app_name:
           type: string
         status:
@@ -995,8 +611,6 @@ components:
           type: string
         app_id:
           type: string
-        project_id:
-          type: string
         event:
           type: string
         from_status:
@@ -1011,7 +625,7 @@ components:
     DataRow:
       type: object
       additionalProperties: true
-      description: 项目库的一行数据；字段名由业务决定
+      description: 应用库的一行数据；字段名由业务决定
     DataWrite:
       type: object
       additionalProperties: true
@@ -1065,8 +679,6 @@ components:
       type: object
       properties:
         id:
-          type: string
-        project_id:
           type: string
         app_name:
           type: string
@@ -1160,3 +772,41 @@ components:
       properties:
         logs:
           type: string
+    TableCreate:
+      type: object
+      required: [name, fields]
+      properties:
+        name: {type: string}
+        fields:
+          type: array
+          items:
+            type: object
+            required: [name, type]
+            properties:
+              name: {type: string}
+              type: {type: string, enum: [TEXT, INTEGER, REAL, BLOB]}
+              not_null: {type: boolean, default: false}
+    IndexCreate:
+      type: object
+      required: [name, fields]
+      properties:
+        name: {type: string}
+        fields:
+          type: array
+          items: {type: string}
+        unique: {type: boolean, default: false}
+    AppConfigWrite:
+      type: object
+      properties:
+        memory_limit_mb: {type: integer, minimum: 32, maximum: 4096}
+        cpu_quota_percent: {type: integer, minimum: 1, maximum: 100}
+        start_cmd: {type: string}
+        health_path: {type: string}
+        health_timeout_ms: {type: integer, minimum: 100, maximum: 60000}
+      description: 未提供的字段保持继承全局配置
+    CorsDomain:
+      type: object
+      properties:
+        id: {type: string}
+        domain: {type: string}
+        created_at: {type: integer, format: int64}

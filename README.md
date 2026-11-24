@@ -5,15 +5,16 @@
 ## 它做什么
 
 - 上传 zip 项目包，自动部署成常驻服务
-- 通过 `/apps/<项目ID>/<应用名>/...` 访问应用
-- 应用能读写数据库、存文件、配环境变量和密钥
+- 通过 `/apps/<应用名>/...` 访问应用
+- 应用能读写数据库（通过注入的库路径自行访问）、存文件、配环境变量和密钥
 - 卡死能发现、部署失败能回滚、Core 强杀能对账
 - systemd 管理，开机自启，崩溃重启
 
 ## 它不做什么（边界）
 
 - **不做备份**。数据自己负责，平台不提供任何恢复保证。
-- 不做域名和 HTTPS。只用 IP + 路径访问；要 HTTPS 请自己在外面挂反代。
+- 支持域名访问：把域名 A 记录指到设备 IP，和 IP 一样走 `/apps/...` 路径。
+- 不做基于 Host 头的子域名路由，Core 内不做 HTTPS；要 HTTPS 请在外面挂反代。
 - 只支持 Node.js，不做多语言。不做 Go / Python / WASM 运行时。
 - 不做完整控制台。只有一个极简状态页。
 - 不做外部对象存储（S3）、任务队列、SDK。
@@ -53,33 +54,46 @@ sudo ./scripts/install.sh --binary /path/to/minicore --cli-binary /path/to/minib
 export MINIBASE_TOKEN=安装时打印的Token
 
 # 部署应用（mode a=包里带 node_modules，mode b=平台 npm install）
-minibase deploy hello.zip --app shop --project proj_a --mode a
+minibase deploy hello.zip --app shop --mode a
 
 # 访问
-curl http://服务器IP:8080/apps/proj_a/shop/api/users
+curl http://服务器IP:8080/apps/shop/api/users
 
 # 查状态 / 日志
 minibase status shop
 minibase logs shop
 
 # 回滚到上一个版本
-minibase rollback proj_a/shop
+minibase rollback shop
 
-# 数据库 CRUD
-minibase data proj_a users post '{"name":"Alice"}'
-minibase data proj_a users get
+# 数据库管控（建库、建表、索引、删表、删库）
+minibase db create-db shop analytics
+minibase db tables shop
+minibase db create shop users '[{"name":"name","type":"TEXT"}]'
+minibase db index-add shop users idx_name name
 
 # 对象存储
-minibase storage upload proj_a shop ./photo.jpg
-minibase storage list proj_a shop
+minibase storage upload shop ./photo.jpg
+minibase storage list shop
 
 # 环境变量 / 密钥
-minibase env set proj_a/shop NODE_ENV=production
-minibase env set proj_a/shop API_KEY=secret --secret
-minibase env list proj_a/shop
+minibase env set shop NODE_ENV=production
+minibase env set shop API_KEY=secret --secret
+minibase env list shop
 
-# 下线应用（回收端口）
-minibase down proj_a/shop
+# 暂停应用（保留数据）与彻底删除
+minibase pause shop
+minibase rm shop --yes
+
+# 重启、编辑、版本历史
+minibase restart shop
+minibase edit shop memory_limit_mb=128
+minibase versions shop
+
+# 资源用量、CORS、Token 轮换
+minibase usage
+minibase cors add shop https://admin.example.com
+minibase token rotate
 ```
 
 配置改动下次部署生效，不重启当前版本。详细命令见本地文档 `docs/OPERATIONS.md`（该目录不提交到公开仓库）。
@@ -130,18 +144,36 @@ ssh root@服务器IP 'bash -s -- --purge-data --yes' < scripts/uninstall.sh
 
 管控 API 的 OpenAPI 3.0 文件在 `api/openapi.yaml`。
 
-Apifox 可以直接导入这个文件：
+Apifox 可以直接导入这个文件。先转成 JSON 再导入——CLI 2.2.12 直接读 YAML 会报 `Invalid format`：
 
 ```sh
-apifox import --project 9079556 --branch main --format openapi --file api/openapi.yaml \
+ruby -ryaml -rjson -e 'File.write("/tmp/minibase-openapi.json", JSON.generate(YAML.load_file("api/openapi.yaml")))'
+apifox import --project 9079556 --branch main --format openapi --file /tmp/minibase-openapi.json \
   --module-map "MiniBase 管控 API=8944573" --overwrite-mode overwrite
 ```
 
 本地项目已经使用的 Apifox 项目 ID：`9079556`。  
 OpenAPI 模块 ID：`8944573`。重复导入时指定模块 ID，避免生成重复接口。
 
-导入后的接口分组按 OpenAPI `tags` 生成：运维、部署、应用管理、日志与审计、数据库、对象存储。
-所有 `/api/...` 接口使用 `Authorization: Bearer <MINIBASE_TOKEN>`。
+导入结果会显示 `createCount`（新增）和 `updateCount`（更新）。若只新增了新接口、旧接口 `ignoreCount` 为 0，说明旧接口内容没变，这是正常的。导入后用 `apifox endpoint list --project 9079556 --branch main --page 1 --page-size 500` 回读，确认没有重复接口。
+
+导入后的接口分组按 OpenAPI `tags` 生成：系统、应用管理、数据库（表/索引管理）、文件存储、安全。
+
+管控 API 路径规则：**应用是顶层资源，没有项目层**。资源挂在应用下，HTTP 方法表达动作，命令用 `/actions/` 后缀。例如：
+
+```
+/api/system/usage                              系统用量
+/api/apps                                      应用列表 / 部署
+/api/apps/shop                                 应用详情 / 编辑 / 删除
+/api/apps/shop/actions/pause|resume|restart    暂停/恢复/重启
+/api/apps/shop/databases                       应用的库列表 / 新建
+/api/apps/shop/databases/main/tables           库的表管理
+/api/apps/shop/files                           文件列表 / 上传
+/api/apps/shop/cors                            CORS 白名单
+```
+
+旧路径（如 `/api/deploy`、`/api/apps-list`、`/api/usage`）已从 OpenAPI 和 Apifox 中删除，只保留新路径。CLI 已全部切到新路径。
+所有 `/api/...` 接口使用 `Authorization: Bearer <MINIBASE_TOKEN>`。API 路径体系的梳理记录见 `docs/08-管控面补齐方案.md`。
 
 ## 测试
 
@@ -156,6 +188,7 @@ go test ./...    # 所有逻辑测试
 以下文档保存在本地，不提交到公开仓库：
 
 - `docs/OPERATIONS.md`
+- `docs/08-管控面补齐方案.md`
 - `docs/TROUBLESHOOTING.md`
 - `docs/00-开发方案.md`
 - `docs/ACCEPTANCE-v2.md`

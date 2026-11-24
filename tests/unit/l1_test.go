@@ -84,10 +84,10 @@ func newLocalServer(h http.Handler) *httptest.Server {
 	return srv
 }
 
-func (e *testEnv) deploy(t *testing.T, zipPath, app, project, mode string) (int, map[string]any) {
+func (e *testEnv) deploy(t *testing.T, zipPath, app, mode string) (int, map[string]any) {
 	t.Helper()
 	var buf bytes.Buffer
-	w := multipartWriter(&buf, zipPath, app, project, mode)
+	w := multipartWriter(&buf, zipPath, app, mode)
 	req, _ := http.NewRequest(http.MethodPost, e.server.URL+"/api/deploy", &buf)
 	req.Header.Set("Content-Type", w)
 	req.Header.Set("Authorization", "Bearer "+testToken)
@@ -102,7 +102,7 @@ func (e *testEnv) deploy(t *testing.T, zipPath, app, project, mode string) (int,
 	return resp.StatusCode, out
 }
 
-func multipartWriter(buf *bytes.Buffer, zipPath, app, project, mode string) string {
+func multipartWriter(buf *bytes.Buffer, zipPath, app, mode string) string {
 	// 避免依赖 mime/multipart 的复杂签名，这里手写一个最小 multipart。
 	boundary := "minibase-test-boundary"
 	f, err := os.Open(zipPath)
@@ -116,7 +116,7 @@ func multipartWriter(buf *bytes.Buffer, zipPath, app, project, mode string) stri
 	buf.WriteString("Content-Type: application/zip\r\n\r\n")
 	buf.Write(data)
 	buf.WriteString("\r\n")
-	for k, v := range map[string]string{"app": app, "project": project, "mode": mode} {
+	for k, v := range map[string]string{"app": app, "mode": mode} {
 		fmt.Fprintf(buf, "--%s\r\n", boundary)
 		fmt.Fprintf(buf, "Content-Disposition: form-data; name=\"%s\"\r\n\r\n%s\r\n", k, v)
 	}
@@ -202,7 +202,7 @@ func (f *fakeRunner) startCount() int {
 
 // L1-01 Token 认证
 func TestL1_01_TokenAuth(t *testing.T) {
-	h := auth.Middleware(testToken)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	h := auth.Middleware(&config.Config{Token: testToken})(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	cases := []struct {
@@ -229,38 +229,39 @@ func TestL1_01_TokenAuth(t *testing.T) {
 	}
 }
 
-// L1-02 建项目建库原子性
-func TestL1_02_CreateProjectAtomic(t *testing.T) {
+// L1-02 建应用建库原子性
+func TestL1_02_CreateAppDefaultDBAtomic(t *testing.T) {
 	dir := t.TempDir()
 	store, err := database.Open(dir, 5000)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
+	app := &database.App{ID: "app_atomic", Name: "app_atomic",
+		RootPath: "/apps/app_atomic", Status: "构建中", CreatedAt: 1}
+	if err := store.CreateApp(app); err != nil {
+		t.Fatal(err)
+	}
 
 	for _, stage := range []string{"insert_record", "create_file"} {
-		store.CreateProjectFailAt = stage
-		id := "proj_fail_" + stage
-		if err := store.CreateProject(id, id); err == nil {
+		store.CreateAppFailAt = stage
+		if _, err := store.CreateDatabase("app_atomic", "main", true); err == nil {
 			t.Fatalf("%s: 期望注入失败但没失败", stage)
 		}
-		p, err := store.GetProject(id)
-		if err != nil || p != nil {
-			t.Fatalf("%s: 失败后不该有项目记录, p=%v err=%v", stage, p, err)
+		d, _ := store.GetDefaultDatabase("app_atomic")
+		if d != nil {
+			t.Fatalf("%s: 失败后不该有库记录", stage)
 		}
-		if _, err := os.Stat(filepath.Join(dir, "databases", id+".db")); !os.IsNotExist(err) {
+		if _, err := os.Stat(filepath.Join(dir, "databases", "app_atomic", "main.db")); !os.IsNotExist(err) {
 			t.Fatalf("%s: 失败后不该有库文件", stage)
 		}
 	}
-	store.CreateProjectFailAt = ""
-	if err := store.CreateProject("proj_ok", "ok"); err != nil {
-		t.Fatal(err)
+	store.CreateAppFailAt = ""
+	d, err := store.EnsureDefaultDatabase("app_atomic")
+	if err != nil || d == nil {
+		t.Fatalf("正常建库失败: %v", err)
 	}
-	p, _ := store.GetProject("proj_ok")
-	if p == nil {
-		t.Fatal("正常建项目失败")
-	}
-	if _, err := os.Stat(filepath.Join(dir, "databases", "proj_ok.db")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "databases", "app_atomic", "main.db")); err != nil {
 		t.Fatal("正常建库文件失败")
 	}
 }
@@ -340,18 +341,18 @@ func TestL1_06_VersionDirs(t *testing.T) {
 	runner := &fakeRunner{mode: "ok"}
 	env := newEnv(t, runner)
 	for i := 0; i < 2; i++ {
-		code, out := env.deploy(t, fixture("hello.zip"), "shop", "proj_a", "a")
+		code, out := env.deploy(t, fixture("hello.zip"), "shop", "a")
 		if code != http.StatusOK {
 			t.Fatalf("第 %d 次部署失败: %d %v", i+1, code, out)
 		}
 	}
-	base := filepath.Join(env.cfg.DataDir, "apps", "proj_a", "shop", "versions")
+	base := filepath.Join(env.cfg.DataDir, "apps", "shop", "versions")
 	for _, v := range []string{"v1", "v2"} {
 		if _, err := os.Stat(filepath.Join(base, v)); err != nil {
 			t.Fatalf("缺少版本目录 %s: %v", v, err)
 		}
 	}
-	app, _ := env.store.GetAppByName("proj_a", "shop")
+	app, _ := env.store.GetAppByName("shop")
 	if app.CurrentVersion != "v2" {
 		t.Fatalf("当前版本应为 v2, got %s", app.CurrentVersion)
 	}
@@ -362,7 +363,7 @@ func TestL1_07_HealthCheck(t *testing.T) {
 	// 正常回应 → 切流量
 	okRunner := &fakeRunner{mode: "ok"}
 	okEnv := newEnv(t, okRunner)
-	code, out := okEnv.deploy(t, fixture("hello.zip"), "shop", "proj_a", "a")
+	code, out := okEnv.deploy(t, fixture("hello.zip"), "shop", "a")
 	if code != http.StatusOK {
 		t.Fatalf("健康应用部署失败: %d %v", code, out)
 	}
@@ -370,11 +371,11 @@ func TestL1_07_HealthCheck(t *testing.T) {
 	// 永不回应 → 不切换，返回失败
 	hangRunner := &fakeRunner{mode: "hang"}
 	hangEnv := newEnv(t, hangRunner)
-	code, out = hangEnv.deploy(t, fixture("hello.zip"), "shop", "proj_b", "a")
+	code, out = hangEnv.deploy(t, fixture("hello.zip"), "shop", "a")
 	if code == http.StatusOK {
 		t.Fatalf("假死应用不该部署成功: %v", out)
 	}
-	app, _ := hangEnv.store.GetAppByName("proj_b", "shop")
+	app, _ := hangEnv.store.GetAppByName("shop")
 	if app != nil && app.CurrentVersion != "" {
 		t.Fatalf("假死应用不该切流量, got %s", app.CurrentVersion)
 	}
@@ -382,21 +383,21 @@ func TestL1_07_HealthCheck(t *testing.T) {
 
 // L1-08 路径剥前缀
 func TestL1_08_StripPrefix(t *testing.T) {
-	u, err := url.Parse("/apps/proj_a/shop/api/users?page=1")
+	u, err := url.Parse("/apps/shop/api/users?page=1")
 	if err != nil {
 		t.Fatal(err)
 	}
 	root, rest := proxy.MatchRoot(u.Path)
-	if root != "/apps/proj_a/shop" || rest != "/api/users" || u.RawQuery != "page=1" {
+	if root != "/apps/shop" || rest != "/api/users" || u.RawQuery != "page=1" {
 		t.Fatalf("got root=%q rest=%q query=%q", root, rest, u.RawQuery)
 	}
 }
 
 // L1-09 干净根路径
 func TestL1_09_CleanRoot(t *testing.T) {
-	for _, p := range []string{"/apps/proj_a/shop", "/apps/proj_a/shop/"} {
+	for _, p := range []string{"/apps/shop", "/apps/shop/"} {
 		root, rest := proxy.MatchRoot(p)
-		if root != "/apps/proj_a/shop" || rest != "/" {
+		if root != "/apps/shop" || rest != "/" {
 			t.Fatalf("%s: got root=%q rest=%q", p, root, rest)
 		}
 	}
@@ -406,13 +407,13 @@ func TestL1_09_CleanRoot(t *testing.T) {
 func TestL1_10_EnvVars(t *testing.T) {
 	runner := &fakeRunner{mode: "ok"}
 	env := newEnv(t, runner)
-	code, out := env.deploy(t, fixture("hello.zip"), "shop", "proj_a", "a")
+	code, out := env.deploy(t, fixture("hello.zip"), "shop", "a")
 	if code != http.StatusOK {
 		t.Fatalf("deploy failed: %v", out)
 	}
 	port := int(out["port"].(float64))
 	wantPort := fmt.Sprintf("PORT=%d", port)
-	wantMount := "MOUNT_PATH=/apps/proj_a/shop"
+	wantMount := "MOUNT_PATH=/apps/shop"
 	foundPort, foundMount := false, false
 	for _, e := range runner.lastEnv {
 		if e == wantPort {
@@ -431,19 +432,19 @@ func TestL1_10_EnvVars(t *testing.T) {
 func TestL1_11_OldVersionUnchanged(t *testing.T) {
 	runner := &fakeRunner{mode: "second-fail"}
 	env := newEnv(t, runner)
-	code, out := env.deploy(t, fixture("hello.zip"), "shop", "proj_a", "a")
+	code, out := env.deploy(t, fixture("hello.zip"), "shop", "a")
 	if code != http.StatusOK {
 		t.Fatalf("v1 部署失败: %v", out)
 	}
-	code, out = env.deploy(t, fixture("bad.zip"), "shop", "proj_a", "a")
+	code, out = env.deploy(t, fixture("bad.zip"), "shop", "a")
 	if code == http.StatusOK {
 		t.Fatalf("v2 不该成功: %v", out)
 	}
-	app, _ := env.store.GetAppByName("proj_a", "shop")
+	app, _ := env.store.GetAppByName("shop")
 	if app.CurrentVersion != "v1" || app.Status != "运行中" {
 		t.Fatalf("老版本状态被破坏: version=%s status=%s", app.CurrentVersion, app.Status)
 	}
-	resp, err := http.Get(env.server.URL + "/apps/proj_a/shop/api/users")
+	resp, err := http.Get(env.server.URL + "/apps/shop/api/users")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -469,7 +470,7 @@ func TestL1_12_SerialDeploy(t *testing.T) {
 
 	done := make(chan error, 2)
 	go func() {
-		code, out := env.deploy(t, fixture("hello.zip"), "shop", "proj_a", "a")
+		code, out := env.deploy(t, fixture("hello.zip"), "shop", "a")
 		if code != http.StatusOK {
 			done <- fmt.Errorf("first deploy failed: %v", out)
 			return
@@ -478,7 +479,7 @@ func TestL1_12_SerialDeploy(t *testing.T) {
 	}()
 	<-firstStarted
 	go func() {
-		code, out := env.deploy(t, fixture("hello.zip"), "shop", "proj_a", "a")
+		code, out := env.deploy(t, fixture("hello.zip"), "shop", "a")
 		if code != http.StatusOK {
 			done <- fmt.Errorf("second deploy failed: %v", out)
 			return
@@ -501,8 +502,8 @@ func TestL1_12_SerialDeploy(t *testing.T) {
 func TestL1_13_PortNoConflict(t *testing.T) {
 	runner := &fakeRunner{mode: "ok"}
 	env := newEnv(t, runner)
-	_, out1 := env.deploy(t, fixture("hello.zip"), "shop1", "proj_a", "a")
-	_, out2 := env.deploy(t, fixture("hello.zip"), "shop2", "proj_a", "a")
+	_, out1 := env.deploy(t, fixture("hello.zip"), "shop1", "a")
+	_, out2 := env.deploy(t, fixture("hello.zip"), "shop2", "a")
 	p1 := int(out1["port"].(float64))
 	p2 := int(out2["port"].(float64))
 	if p1 == p2 || p1 == 0 || p2 == 0 {
@@ -518,27 +519,33 @@ func TestL1_14_Reconcile(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if err := store.CreateProject("proj_normal", "normal"); err != nil {
+	for _, name := range []string{"app_normal", "app_broken"} {
+		app := &database.App{ID: "id_" + name, Name: name, RootPath: "/apps/" + name, CreatedAt: 1}
+		if err := store.CreateApp(app); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.EnsureDefaultDatabase(name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = os.Remove(filepath.Join(dir, "databases", "app_broken", "main.db"))
+	if err := os.MkdirAll(filepath.Join(dir, "databases", "app_orphan"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.CreateProject("proj_broken", "broken"); err != nil {
-		t.Fatal(err)
-	}
-	_ = os.Remove(filepath.Join(dir, "databases", "proj_broken.db"))
-	if err := os.WriteFile(filepath.Join(dir, "databases", "proj_orphan.db"), []byte{}, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "databases", "app_orphan", "orphan.db"), []byte{}, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	report, err := store.Reconcile()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(report.Healthy) != 1 || report.Healthy[0] != "proj_normal" {
+	if len(report.Healthy) != 1 || report.Healthy[0] != "app_normal/main" {
 		t.Fatalf("healthy 错误: %v", report.Healthy)
 	}
-	if len(report.OrphanFiles) != 1 || report.OrphanFiles[0] != "proj_orphan.db" {
+	if len(report.OrphanFiles) != 1 || !strings.Contains(report.OrphanFiles[0], "app_orphan") {
 		t.Fatalf("孤儿文件错误: %v", report.OrphanFiles)
 	}
-	if len(report.BrokenRefs) != 1 || report.BrokenRefs[0] != "proj_broken" {
+	if len(report.BrokenRefs) != 1 || report.BrokenRefs[0] != "app_broken/main" {
 		t.Fatalf("坏引用错误: %v", report.BrokenRefs)
 	}
 }
@@ -554,7 +561,7 @@ func TestL1_15_CLIHttpClient(t *testing.T) {
 		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/api/deploy" {
-			_, _ = w.Write([]byte(`{"version":"v1","access_url":"http://x/apps/a/b","notice":"n"}`))
+			_, _ = w.Write([]byte(`{"version":"v1","access_url":"http://x/apps/b","notice":"n"}`))
 			return
 		}
 		_, _ = w.Write([]byte(`{"status":"运行中"}`))

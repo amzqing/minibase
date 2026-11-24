@@ -3,8 +3,11 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 )
@@ -13,8 +16,14 @@ import (
 type Config struct {
 	ListenAddr string `json:"listen_addr"`
 
-	// Token 管理员令牌。可用环境变量 MINIBASE_TOKEN 覆盖。
+	// Token 管理员令牌（明文，旧配置兼容）。可用环境变量 MINIBASE_TOKEN 覆盖。
 	Token string `json:"token"`
+
+	// TokenHash 管理员令牌哈希，格式 sha256:<hex>。存在时优先使用。
+	TokenHash string `json:"token_hash"`
+
+	// ConfigPath 配置文件路径，供 Token 轮换原子写回。不序列化。
+	ConfigPath string `json:"-"`
 
 	// DataDir 数据根目录，下面放 system.db / databases / apps。
 	DataDir string `json:"data_dir"`
@@ -158,6 +167,7 @@ func Default() *Config {
 // Load 从 JSON 文件加载配置，再用环境变量覆盖。文件不存在则用默认值。
 func Load(path string) (*Config, error) {
 	cfg := Default()
+	cfg.ConfigPath = path
 	if path != "" {
 		b, err := os.ReadFile(path)
 		if err != nil && !os.IsNotExist(err) {
@@ -178,8 +188,18 @@ func Load(path string) (*Config, error) {
 	if v := os.Getenv("MINIBASE_LISTEN"); v != "" {
 		cfg.ListenAddr = v
 	}
-	if cfg.Token == "" {
+	if cfg.Token == "" && cfg.TokenHash == "" {
 		return nil, fmt.Errorf("管理员 Token 未配置：请写进配置文件或用环境变量 MINIBASE_TOKEN 指定")
+	}
+	// 旧配置明文 Token 自动迁移成哈希，避免明文长期落盘。
+	if cfg.Token != "" && cfg.TokenHash == "" && path != "" {
+		cfg.TokenHash = HashToken(cfg.Token)
+		if err := cfg.save(); err == nil {
+			cfg.Token = ""
+			log.Printf("[config] 管理员 Token 已迁移为哈希存储")
+		} else {
+			log.Printf("[config] Token 哈希迁移失败（保留明文兼容）: %v", err)
+		}
 	}
 	abs, err := filepath.Abs(cfg.DataDir)
 	if err != nil {
@@ -233,3 +253,32 @@ func (c *Config) DatabasesDir() string { return filepath.Join(c.DataDir, "databa
 
 // AppsDir 返回应用版本目录。
 func (c *Config) AppsDir() string { return filepath.Join(c.DataDir, "apps") }
+
+// HashToken 返回 token 的哈希。独立实现，避免 config 依赖 auth 包。
+func HashToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// save 原子写回配置文件。
+func (c *Config) save() error {
+	if c.ConfigPath == "" {
+		return fmt.Errorf("未设置配置文件路径")
+	}
+	b, err := json.MarshalIndent(c, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := c.ConfigPath + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, c.ConfigPath)
+}
+
+// SetTokenHash 设置新 Token 哈希并原子写回配置文件。
+func (c *Config) SetTokenHash(token string) error {
+	c.TokenHash = HashToken(token)
+	c.Token = ""
+	return c.save()
+}

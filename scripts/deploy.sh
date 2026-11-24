@@ -38,18 +38,21 @@ if [ -z "$ARCH" ]; then
 fi
 echo "  架构: $ARCH"
 
-echo "[2/4] 交叉编译"
+echo "[2/5] 构建前端"
+(cd "$ROOT_DIR/web" && npm ci && npm run build)
+
+echo "[3/5] 交叉编译"
 (cd "$ROOT_DIR" && GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 go build -o "$BUILD_DIR/minicore" ./cmd/minicore)
 (cd "$ROOT_DIR" && GOOS=linux GOARCH="$ARCH" CGO_ENABLED=0 go build -o "$BUILD_DIR/minibase" ./cmd/minibase)
 
-echo "[3/4] 上传安装文件"
+echo "[4/5] 上传安装文件"
 REMOTE_DIR="/tmp/minibase-install-$$"
 ssh $SSH_OPTS "$TARGET" "mkdir -p $REMOTE_DIR"
 scp -q $SSH_OPTS "$BUILD_DIR/minicore" "$BUILD_DIR/minibase" \
     "$ROOT_DIR/scripts/install.sh" "$ROOT_DIR/deployments/systemd/minicore.service" \
     "$TARGET:$REMOTE_DIR/"
 
-echo "[4/4] 目标机安装"
+echo "[5/5] 目标机安装"
 REMOTE_CMD="$REMOTE_DIR/install.sh --binary $REMOTE_DIR/minicore --cli-binary $REMOTE_DIR/minibase"
 [ -n "$TOKEN" ] && REMOTE_CMD="$REMOTE_CMD --token $TOKEN"
 [ -n "$LISTEN" ] && REMOTE_CMD="$REMOTE_CMD --listen $LISTEN"

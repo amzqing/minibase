@@ -9,8 +9,8 @@ import (
 )
 
 // Rollback 把应用切回上一个版本。不重新分配端口，不重新构建。
-func (d *Deployer) Rollback(projectID, appName string) (*Result, error) {
-	app, err := d.store.GetAppByName(projectID, appName)
+func (d *Deployer) Rollback(appName string) (*Result, error) {
+	app, err := d.store.GetAppByName(appName)
 	if err != nil {
 		return nil, err
 	}
@@ -55,21 +55,20 @@ func (d *Deployer) Rollback(projectID, appName string) (*Result, error) {
 	}
 
 	// 健康检查
-	timeout := time.Duration(d.cfg.HealthTimeoutMS) * time.Millisecond
-	if !d.runner.HealthCheck(targetVer.Port, timeout) {
+	if !d.runner.HealthCheck(targetVer.Port, d.healthTimeout(app.ID)) {
 		return nil, fmt.Errorf("回滚后健康检查失败，当前版本未变")
 	}
 
 	// 交换 current / previous
 	_ = d.store.UpdateAppAfterDeploy(app.ID, targetVer.Version, app.CurrentVersion, targetVer.Port, "运行中")
 	_ = d.store.InsertCallLog(&database.CallLog{
-		AppID: app.ID, ProjectID: app.ProjectID, Event: "回滚",
+		AppID: app.ID, Event: "回滚",
 		FromStatus: app.Status, ToStatus: "运行中", Reason: "回滚到 " + targetVer.Version,
 		CreatedAt: time.Now().Unix(),
 	})
 
 	return &Result{
-		ProjectID: app.ProjectID, AppName: app.Name, RootPath: app.RootPath,
+		AppName: app.Name, RootPath: app.RootPath,
 		Version: targetVer.Version, Port: targetVer.Port, Status: "运行中",
 	}, nil
 }

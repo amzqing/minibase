@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -15,16 +13,8 @@ import (
 	"minibase/internal/health"
 )
 
-// ===== 版本二新增 API =====
-
-// handleRollback POST /api/apps/<项目ID>/<应用名>/rollback
-func (s *Server) handleRollback(w http.ResponseWriter, r *http.Request) {
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/apps/"), "/")
-	if len(parts) < 3 || parts[2] != "rollback" {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("路径格式错误"))
-		return
-	}
-	res, err := s.deployer.Rollback(parts[0], parts[1])
+func (s *Server) handleRollback(w http.ResponseWriter, r *http.Request, appName string) {
+	res, err := s.deployer.Rollback(appName)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
@@ -35,14 +25,8 @@ func (s *Server) handleRollback(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleAppStatus GET /api/apps/<项目ID>/<应用名>/status
-func (s *Server) handleAppStatus(w http.ResponseWriter, r *http.Request) {
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/apps/"), "/")
-	if len(parts) < 3 || parts[2] != "status" {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("路径格式错误"))
-		return
-	}
-	app, err := s.store.GetAppByName(parts[0], parts[1])
+func (s *Server) handleAppStatus(w http.ResponseWriter, r *http.Request, appName string) {
+	app, err := s.store.GetAppByName(appName)
 	if err != nil || app == nil {
 		writeErr(w, http.StatusNotFound, fmt.Errorf("应用不存在"))
 		return
@@ -51,61 +35,56 @@ func (s *Server) handleAppStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"app_name": app.Name, "status": app.Status,
 		"current_version": app.CurrentVersion, "previous_version": app.PreviousVersion,
-		"restart_count": app.RestartCount,
-		"history":       logs,
+		"restart_count": app.RestartCount, "history": logs,
+		"access_url": fmt.Sprintf("http://%s%s", r.Host, app.RootPath),
 	})
 }
 
-// handleSecrets POST /api/apps/<项目ID>/<应用名>/secrets
-func (s *Server) handleSecrets(w http.ResponseWriter, r *http.Request) {
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/apps/"), "/")
-	if len(parts) < 3 || parts[2] != "secrets" {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("路径格式错误"))
-		return
-	}
-	app, err := s.store.GetAppByName(parts[0], parts[1])
+func (s *Server) handleSecrets(w http.ResponseWriter, r *http.Request, appName string) {
+	app, err := s.store.GetAppByName(appName)
 	if err != nil || app == nil {
 		writeErr(w, http.StatusNotFound, fmt.Errorf("应用不存在"))
 		return
 	}
-	var body map[string]string
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeErr(w, http.StatusBadRequest, err)
-		return
-	}
-	version := app.CurrentVersion
-	if version == "" {
-		version = "v1"
-	}
-	for k, v := range body {
-		enc, err := s.cipher.Encrypt(v)
-		if err != nil {
-			writeErr(w, http.StatusInternalServerError, err)
+	switch r.Method {
+	case http.MethodGet:
+		secrets, _ := s.store.GetSecrets(app.ID, "")
+		out := []map[string]any{}
+		for _, sec := range secrets {
+			out = append(out, map[string]any{"key": sec.Key, "value": "<encrypted>", "is_secret": true})
+		}
+		writeJSON(w, http.StatusOK, out)
+	case http.MethodPost:
+		var body map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeErr(w, http.StatusBadRequest, err)
 			return
 		}
-		sec := &database.Secret{AppID: app.ID, Key: k, EncryptedValue: enc, Version: version, CreatedAt: time.Now().Unix()}
-		if err := s.store.SaveSecret(sec); err != nil {
-			writeErr(w, http.StatusInternalServerError, err)
-			return
+		version := app.CurrentVersion
+		if version == "" {
+			version = "v1"
 		}
+		for k, v := range body {
+			enc, err := s.cipher.Encrypt(v)
+			if err != nil {
+				writeErr(w, http.StatusInternalServerError, err)
+				return
+			}
+			sec := &database.Secret{AppID: app.ID, Key: k, EncryptedValue: enc,
+				Version: version, CreatedAt: time.Now().Unix()}
+			if err := s.store.SaveSecret(sec); err != nil {
+				writeErr(w, http.StatusInternalServerError, err)
+				return
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "count": len(body)})
+	default:
+		writeErr(w, http.StatusMethodNotAllowed, fmt.Errorf("不支持的方法"))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "count": len(body)})
 }
 
-// handleStorage 对象存储 API
-func (s *Server) handleStorage(w http.ResponseWriter, r *http.Request) {
-	// /api/storage/<动作>/<项目ID>/<应用名>[/<文件ID>]
-	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/api/storage/"), "/")
-	if len(parts) < 3 {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("路径格式错误"))
-		return
-	}
-	action, projectID, appName := parts[0], parts[1], parts[2]
-	fileID := ""
-	if len(parts) >= 4 {
-		fileID = parts[3]
-	}
-
+// handleStorage 处理对象存储动作。外部路径 /apps/{app}/files 和兼容路径 /api/storage/* 都走这里。
+func (s *Server) handleStorage(w http.ResponseWriter, r *http.Request, action, appName, fileID string) {
 	switch {
 	case action == "upload" && r.Method == http.MethodPost:
 		r.Body = http.MaxBytesReader(w, r.Body, s.cfg.StorageMaxFileMB*1024*1024)
@@ -128,16 +107,14 @@ func (s *Server) handleStorage(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, fmt.Errorf("磁盘空间不足，拒绝上传"))
 			return
 		}
-		id, err := s.storage.Put(projectID, appName, h.Filename, h.Header.Get("Content-Type"), data)
+		id, err := s.storage.Put(appName, h.Filename, h.Header.Get("Content-Type"), data)
 		if err != nil {
 			writeErr(w, http.StatusBadRequest, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{
-			"id": id, "url": fmt.Sprintf("/files/%s/%s/%s", projectID, appName, id),
-		})
+		writeJSON(w, http.StatusOK, map[string]any{"id": id, "url": fmt.Sprintf("/files/%s/%s", appName, id)})
 	case action == "download" && r.Method == http.MethodGet:
-		data, ct, err := s.storage.Get(projectID, appName, fileID)
+		data, ct, err := s.storage.Get(appName, fileID)
 		if err != nil {
 			writeErr(w, http.StatusNotFound, err)
 			return
@@ -146,13 +123,13 @@ func (s *Server) handleStorage(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(data)
 	case action == "delete" && r.Method == http.MethodDelete:
-		if err := s.storage.Delete(projectID, appName, fileID); err != nil {
+		if err := s.storage.Delete(appName, fileID); err != nil {
 			writeErr(w, http.StatusBadRequest, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
 	case action == "list" && r.Method == http.MethodGet:
-		objs, err := s.storage.List(projectID, appName)
+		objs, err := s.storage.List(appName)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err)
 			return
@@ -165,14 +142,14 @@ func (s *Server) handleStorage(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleFileAccess GET /files/<项目ID>/<应用名>/<文件ID> — 免 Token，供浏览器访问
+// handleFileAccess GET /files/{app}/{id} — 免 Token，供浏览器访问。
 func (s *Server) handleFileAccess(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/files/"), "/")
-	if len(parts) != 3 {
+	if len(parts) != 2 {
 		http.NotFound(w, r)
 		return
 	}
-	data, ct, err := s.storage.Get(parts[0], parts[1], parts[2])
+	data, ct, err := s.storage.Get(parts[0], parts[1])
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -181,7 +158,6 @@ func (s *Server) handleFileAccess(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data)
 }
 
-// handleLogsControl 日志开关与查询
 func (s *Server) handleLogsControl(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		var body struct {
@@ -206,7 +182,6 @@ func (s *Server) handleLogsControl(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
-// handleAudit GET /api/logs/audit — 查 call_logs
 func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 	limit := 100
 	if v := r.URL.Query().Get("limit"); v != "" {
@@ -221,7 +196,3 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, logs)
 }
-
-// 保留 os 和 filepath 导入（文件下载可能需要）
-var _ = os.ReadFile
-var _ = filepath.Join

@@ -1,0 +1,66 @@
+name: Deploy MiniBase
+
+on:
+  push:
+    branches: [main]
+
+# 同一分支同时只跑一个部署，新的排队
+concurrency:
+  group: minibase-deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 下载代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: 构建前端
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: 跑 Go 测试
+        run: go test ./...
+
+      - name: 编译 Linux 二进制
+        run: |
+          mkdir -p build
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o build/minicore ./cmd/minicore
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o build/minibase ./cmd/minibase
+
+      - name: 配置 SSH 密钥
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.MINIBASE_DEPLOY_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H 183.87.150.56 >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: 上传并升级
+        run: |
+          REMOTE_DIR="/tmp/minibase-deploy-${GITHUB_SHA::12}"
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes root@183.87.150.56 "mkdir -p $REMOTE_DIR"
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
+            build/minicore build/minibase scripts/upgrade.sh \
+            root@183.87.150.56:"$REMOTE_DIR/"
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes root@183.87.150.56 \
+            "chmod +x $REMOTE_DIR/upgrade.sh && $REMOTE_DIR/upgrade.sh $REMOTE_DIR/minicore $REMOTE_DIR/minibase; RC=\$?; rm -rf $REMOTE_DIR; exit \$RC"
+
+      - name: 清理临时密钥
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

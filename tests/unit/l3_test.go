@@ -19,16 +19,16 @@ import (
 func TestL3_01_EnvConfig(t *testing.T) {
 	runner := &fakeRunner{mode: "ok"}
 	env := newEnv(t, runner)
-	env.deploy(t, fixture("hello.zip"), "shop", "proj_a", "a")
+	env.deploy(t, fixture("hello.zip"), "shop", "a")
 	// 设置普通变量
-	resp := authReq(t, http.MethodPost, env.server.URL+"/api/apps/proj_a/shop/env",
+	resp := authReq(t, http.MethodPost, env.server.URL+"/api/apps/shop/env",
 		strings.NewReader(`{"NODE_ENV":"production","FEATURE_X":"on"}`), "application/json")
 	if resp.StatusCode != 200 {
 		t.Fatalf("env 设置失败: %d", resp.StatusCode)
 	}
 	resp.Body.Close()
 	// 重新部署，检查 fakeRunner 收到的 env
-	_, _ = env.deploy(t, fixture("hello.zip"), "shop", "proj_a", "a")
+	_, _ = env.deploy(t, fixture("hello.zip"), "shop", "a")
 	found := map[string]bool{}
 	for _, e := range runner.lastEnv {
 		if strings.HasPrefix(e, "NODE_ENV=") {
@@ -47,10 +47,10 @@ func TestL3_01_EnvConfig(t *testing.T) {
 func TestL3_02_EnvNextDeploy(t *testing.T) {
 	runner := &fakeRunner{mode: "ok"}
 	env := newEnv(t, runner)
-	env.deploy(t, fixture("hello.zip"), "shop", "proj_a", "a")
+	env.deploy(t, fixture("hello.zip"), "shop", "a")
 	env1 := append([]string(nil), runner.lastEnv...)
 	// 设置新值但不部署
-	resp := authReq(t, http.MethodPost, env.server.URL+"/api/apps/proj_a/shop/env",
+	resp := authReq(t, http.MethodPost, env.server.URL+"/api/apps/shop/env",
 		strings.NewReader(`{"NEW_KEY":"v1"}`), "application/json")
 	resp.Body.Close()
 	// 当前进程 env 不应变化（runner.lastEnv 是上次部署的）
@@ -60,7 +60,7 @@ func TestL3_02_EnvNextDeploy(t *testing.T) {
 		}
 	}
 	// 重新部署后生效
-	_, _ = env.deploy(t, fixture("hello.zip"), "shop", "proj_a", "a")
+	_, _ = env.deploy(t, fixture("hello.zip"), "shop", "a")
 	found := false
 	for _, e := range runner.lastEnv {
 		if e == "NEW_KEY=v1" {
@@ -96,7 +96,7 @@ func TestL3_04_PortAlloc(t *testing.T) {
 	env := newEnv(t, &fakeRunner{mode: "ok"})
 	ports := map[int]bool{}
 	for _, name := range []string{"a", "b", "c"} {
-		_, out := env.deploy(t, fixture("hello.zip"), name, "proj_a", "a")
+		_, out := env.deploy(t, fixture("hello.zip"), name, "a")
 		p := int(out["port"].(float64))
 		if ports[p] {
 			t.Fatalf("端口重复: %d", p)
@@ -111,14 +111,14 @@ func TestL3_04_PortAlloc(t *testing.T) {
 // L3-05 端口回收
 func TestL3_05_PortReuse(t *testing.T) {
 	env := newEnv(t, &fakeRunner{mode: "ok"})
-	_, out1 := env.deploy(t, fixture("hello.zip"), "temp", "proj_a", "a")
+	_, out1 := env.deploy(t, fixture("hello.zip"), "temp", "a")
 	p1 := int(out1["port"].(float64))
-	resp := authReq(t, http.MethodDelete, env.server.URL+"/api/apps/proj_a/temp", nil, "")
+	resp := authReq(t, http.MethodDelete, env.server.URL+"/api/apps/temp", nil, "")
 	if resp.StatusCode != 200 {
 		t.Fatalf("下线失败: %d", resp.StatusCode)
 	}
 	resp.Body.Close()
-	_, out2 := env.deploy(t, fixture("hello.zip"), "newapp", "proj_a", "a")
+	_, out2 := env.deploy(t, fixture("hello.zip"), "newapp", "a")
 	p2 := int(out2["port"].(float64))
 	if p1 != p2 {
 		t.Fatalf("端口未复用: %d != %d", p1, p2)
@@ -128,10 +128,10 @@ func TestL3_05_PortReuse(t *testing.T) {
 // L3-06 回滚用原端口
 func TestL3_06_RollbackPort(t *testing.T) {
 	env := newEnv(t, &fakeRunner{mode: "ok"})
-	_, o1 := env.deploy(t, fixture("hello.zip"), "shop", "proj_a", "a")
+	_, o1 := env.deploy(t, fixture("hello.zip"), "shop", "a")
 	p1 := int(o1["port"].(float64))
-	env.deploy(t, fixture("hello.zip"), "shop", "proj_a", "a")
-	resp := authReq(t, http.MethodPost, env.server.URL+"/api/apps/proj_a/shop/rollback", nil, "")
+	env.deploy(t, fixture("hello.zip"), "shop", "a")
+	resp := authReq(t, http.MethodPost, env.server.URL+"/api/apps/shop/actions/rollback", nil, "")
 	out := readJSON(t, resp)
 	if int(out["port"].(float64)) != p1 {
 		t.Fatalf("回滚端口错误: %v", out)
@@ -144,26 +144,26 @@ func TestL3_07_PoolExhaust(t *testing.T) {
 	env.cfg.PortStart = 31000
 	env.cfg.PortEnd = 31000 // 只有 1 个端口
 	// 注意：deployer 的 allocated map 在构造时加载，运行时改 cfg 影响 allocatePort
-	_, o1 := env.deploy(t, fixture("hello.zip"), "a", "proj_a", "a")
+	_, o1 := env.deploy(t, fixture("hello.zip"), "a", "a")
 	if o1["port"] == nil {
 		t.Fatal("第一个部署应成功")
 	}
-	code, _ := env.deploy(t, fixture("hello.zip"), "b", "proj_a", "a")
+	code, _ := env.deploy(t, fixture("hello.zip"), "b", "a")
 	if code == 200 {
 		t.Fatal("池耗尽应拒绝")
 	}
 }
 
-// L3-08 同项目应用间调用 + L3-09 跨项目拒绝
+// L3-08 应用根路径 + L3-09 来源头规则
 func TestL3_08_09_AppToApp(t *testing.T) {
-	root1, rest1 := proxy.MatchRoot("/apps/proj_a/shop/api/ping")
-	if root1 != "/apps/proj_a/shop" || rest1 != "/api/ping" {
+	root1, rest1 := proxy.MatchRoot("/apps/shop/api/ping")
+	if root1 != "/apps/shop" || rest1 != "/api/ping" {
 		t.Fatal("根路径解析错误")
 	}
-	// 跨项目隔离通过 header 检查（proxy.ServeHTTP 里），这里验证 MatchRoot 保持正确
-	root2, _ := proxy.MatchRoot("/apps/proj_b/other/api/ping")
+	// 应用间隔离通过 header 检查（proxy.ServeHTTP 里），这里验证 MatchRoot 保持正确
+	root2, _ := proxy.MatchRoot("/apps/other/api/ping")
 	if root2 == root1 {
-		t.Fatal("不同项目根路径不应相同")
+		t.Fatal("不同应用根路径不应相同")
 	}
 }
 

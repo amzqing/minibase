@@ -108,19 +108,6 @@ func (l *Logger) LogControl(format string, args ...any) {
 	log.Printf("[minicore] "+format, args...)
 }
 
-// LogApp 应用日志：开关打开时才写，带 app-<项目ID>-<应用名> 标识。
-func (l *Logger) LogApp(projectID, appName, line string) {
-	if !l.IsEnabled("app", appName) {
-		return
-	}
-	// 按级别过滤（level=all 记全部；error 只记含 ERROR 的行）
-	level := l.Level("app", appName)
-	if level == "error" && !containsError(line) {
-		return
-	}
-	log.Printf("[app-%s-%s] %s", projectID, appName, line)
-}
-
 func containsError(s string) bool {
 	return len(s) >= 5 && (contains(s, "error") || contains(s, "ERROR") || contains(s, "Error"))
 }

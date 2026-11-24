@@ -16,48 +16,48 @@ import (
 	"minibase/internal/runtime"
 )
 
-// L3-08 真实应用间调用：部署 A、B，带来源头访问 B
+// L3-08 真实应用间调用：带来源应用名访问目标应用
 func TestL3_08_RealAppToApp(t *testing.T) {
 	env := newEnv(t, &fakeRunner{mode: "ok"})
-	_, outB := env.deploy(t, fixture("hello.zip"), "target", "proj_a", "a")
+	_, outB := env.deploy(t, fixture("hello.zip"), "target", "a")
 	portB := int(outB["port"].(float64))
 	_ = portB
 
-	// 同项目来源头放行
-	req, _ := http.NewRequest(http.MethodGet, env.server.URL+"/apps/proj_a/target/api/users", nil)
-	req.Header.Set("X-MiniBase-From", "proj_a")
+	// 同应用来源头放行
+	req, _ := http.NewRequest(http.MethodGet, env.server.URL+"/apps/target/api/users", nil)
+	req.Header.Set("X-MiniBase-From", "target")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if resp.StatusCode != 200 {
-		t.Fatalf("同项目调用应放行: %d", resp.StatusCode)
+		t.Fatalf("同应用调用应放行: %d", resp.StatusCode)
 	}
 	resp.Body.Close()
 }
 
-// L3-09 跨项目拒绝：带不同来源头返回 403
-func TestL3_09_RealCrossProjectDeny(t *testing.T) {
-	if !proxy.AllowedBySource("", "proj_a") {
+// L3-09 跨应用拒绝：带不同来源头返回 403
+func TestL3_09_RealCrossAppDeny(t *testing.T) {
+	if !proxy.AllowedBySource("", "target") {
 		t.Fatal("无头应放行")
 	}
-	if !proxy.AllowedBySource("proj_a", "proj_a") {
-		t.Fatal("同项目应放行")
+	if !proxy.AllowedBySource("target", "target") {
+		t.Fatal("同应用应放行")
 	}
-	if proxy.AllowedBySource("proj_b", "proj_a") {
-		t.Fatal("跨项目应拒绝")
+	if proxy.AllowedBySource("other", "target") {
+		t.Fatal("跨应用应拒绝")
 	}
 
 	env := newEnv(t, &fakeRunner{mode: "ok"})
-	env.deploy(t, fixture("hello.zip"), "target", "proj_a", "a")
-	req, _ := http.NewRequest(http.MethodGet, env.server.URL+"/apps/proj_a/target/api/users", nil)
-	req.Header.Set("X-MiniBase-From", "proj_b")
+	env.deploy(t, fixture("hello.zip"), "target", "a")
+	req, _ := http.NewRequest(http.MethodGet, env.server.URL+"/apps/target/api/users", nil)
+	req.Header.Set("X-MiniBase-From", "other")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if resp.StatusCode != 403 {
-		t.Fatalf("跨项目应返回 403, got %d", resp.StatusCode)
+		t.Fatalf("跨应用应返回 403, got %d", resp.StatusCode)
 	}
 	resp.Body.Close()
 }
@@ -79,9 +79,9 @@ func TestL3_10_UpgradeRollbackLogic(t *testing.T) {
 // 缺口：env API 统一机制（密钥走同一 API）
 func TestL3_EnvUnifiedSecret(t *testing.T) {
 	env := newEnv(t, &fakeRunner{mode: "ok"})
-	env.deploy(t, fixture("hello.zip"), "shop", "proj_a", "a")
+	env.deploy(t, fixture("hello.zip"), "shop", "a")
 	body := `{"PLAIN":"v1","TOKEN":"secret123","_secret":["TOKEN"]}`
-	resp := authReq(t, http.MethodPost, env.server.URL+"/api/apps/proj_a/shop/env", strings.NewReader(body), "application/json")
+	resp := authReq(t, http.MethodPost, env.server.URL+"/api/apps/shop/env", strings.NewReader(body), "application/json")
 	if resp.StatusCode != 200 {
 		t.Fatalf("env 统一 API 失败: %d", resp.StatusCode)
 	}
@@ -102,8 +102,8 @@ func TestL3_EnvUnifiedSecret(t *testing.T) {
 // 缺口：状态页应用日志 API
 func TestL3_AppLogAPI(t *testing.T) {
 	env := newEnv(t, &fakeRunner{mode: "ok"})
-	env.deploy(t, fixture("hello.zip"), "shop", "proj_a", "a")
-	resp := authReq(t, http.MethodGet, env.server.URL+"/api/apps/proj_a/shop/applog", nil, "")
+	env.deploy(t, fixture("hello.zip"), "shop", "a")
+	resp := authReq(t, http.MethodGet, env.server.URL+"/api/apps/shop/applog", nil, "")
 	if resp.StatusCode != 200 {
 		t.Fatalf("应用日志 API 失败: %d", resp.StatusCode)
 	}
@@ -114,7 +114,7 @@ func TestL3_AppLogAPI(t *testing.T) {
 func TestL3_12_RuntimeStateRestoredAfterHotReload(t *testing.T) {
 	runner := &fakeRunner{mode: "ok"}
 	env := newEnv(t, runner)
-	code, out := env.deploy(t, fixture("hello.zip"), "shop", "proj_a", "a")
+	code, out := env.deploy(t, fixture("hello.zip"), "shop", "a")
 	if code != http.StatusOK {
 		t.Fatalf("部署失败: %d %v", code, out)
 	}
@@ -162,7 +162,7 @@ func TestL3_12_RuntimeStateRestoredAfterHotReload(t *testing.T) {
 	t.Cleanup(srv.Close)
 	t.Cleanup(restored.Shutdown)
 
-	resp := authReq(t, http.MethodDelete, srv.URL+"/api/apps/proj_a/shop", nil, "")
+	resp := authReq(t, http.MethodDelete, srv.URL+"/api/apps/shop", nil, "")
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("热重载后下线失败: %d", resp.StatusCode)
 	}
