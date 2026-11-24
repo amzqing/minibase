@@ -26,6 +26,24 @@ go build -o bin/minicore ./cmd/minicore
 go build -o bin/minibase ./cmd/minibase
 ```
 
+## 本地开发（热重载）
+
+改代码后想立刻看到效果，用一条命令启动前后端热重载：
+
+```sh
+./scripts/dev.sh
+```
+
+启动后：
+
+- 前端页面：http://localhost:5173（改 `.svelte` / `.ts` 文件，浏览器自动刷新）
+- 后端 API：http://localhost:8080（改 `.go` 文件，1-2 秒自动重新编译并重启）
+- 按 `Ctrl+C` 停止，临时文件自动清理
+
+前提：本机装了 Go 1.26+ 和 Node.js 22+。air 热重载工具通过 `go run` 免安装运行，不往系统装任何东西。本地开发依赖装在项目目录里（`web/node_modules/`），配置和数据在项目的 `config.json` 和 `data/`，和服务器完全隔离。
+
+首次运行会自动装前端依赖。如果本地没有 `config.json`，需要自己准备一份（可参考服务器上的格式，注意 `master_key` 和 `data_dir` 要配对）。
+
 ## 安装到服务器
 
 前提：目标机是 Linux + systemd，已装 Node.js（安装脚本会自动装）。

@@ -1,0 +1,31 @@
+# air 热重载配置：改 Go 代码后自动重新编译并重启 minicore。
+# 用 go run 方式启动 air，不往系统装任何工具。
+root = "."
+tmp_dir = ".air-build"
+
+[build]
+# 编译到项目内的临时目录，不写 /tmp，不污染系统
+cmd = "go build -o ./.air-build/minicore ./cmd/minicore"
+entrypoint = "./.air-build/minicore"
+# 传本地配置文件；开发数据用项目里的 data/
+full_bin = "./.air-build/minicore -config config.json"
+# 监听这些后缀的文件
+include_ext = ["go", "toml", "json", "svelte", "ts", "css", "html"]
+# 忽略这些目录（避免改前端/数据时误触发 Go 重启）
+exclude_dir = ["web", "data", ".git", ".air-build", "bin", "docs", "tests", "node_modules"]
+# 忽略测试文件和备份文件
+exclude_regex = ["_test\\.go$", "\\.bak$"]
+# 编译失败时停止旧进程
+stop_on_error = true
+# 文件变化后等 500ms 再重编译（防抖）
+delay = 500
+
+[log]
+time = true
+
+[misc]
+# 退出时删除临时编译目录
+clean_on_exit = true
+
+[screen]
+clear_on_rebuild = true
