@@ -184,9 +184,14 @@ func TestL3_10_UpgradeScript(t *testing.T) {
 
 // L3-11 文档完整性
 func TestL3_11_Docs(t *testing.T) {
-	for _, f := range []string{"../../README.md", "../../docs/OPERATIONS.md", "../../docs/TROUBLESHOOTING.md"} {
-		if _, err := os.Stat(f); err != nil {
-			t.Fatalf("文档缺失: %s", f)
+	// README 必须提交到仓库，必须存在。
+	if _, err := os.Stat("../../README.md"); err != nil {
+		t.Fatalf("文档缺失: %s", "../../README.md")
+	}
+	// docs/ 按设计不提交公开仓库，本地存在时才检查，CI 里跳过。
+	for _, f := range []string{"../../docs/OPERATIONS.md", "../../docs/TROUBLESHOOTING.md"} {
+		if _, err := os.Stat(f); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("文档读取失败: %s: %v", f, err)
 		}
 	}
 	// 文档必须提到边界
