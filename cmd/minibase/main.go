@@ -15,6 +15,9 @@ import (
 	"time"
 )
 
+// version 由编译期 -ldflags 注入；未注入时显示 dev。
+var version = "dev"
+
 const notice = "提示：第一版不备份，数据自己负责。"
 
 func main() {
@@ -24,6 +27,11 @@ func main() {
 	}
 	cmd := os.Args[1]
 	args := os.Args[2:]
+
+	if cmd == "version" {
+		fmt.Println(version)
+		return
+	}
 
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
 	server := fs.String("server", envOr("MINIBASE_SERVER", "http://127.0.0.1:8080"), "Core 地址")
@@ -166,7 +174,8 @@ func usage() {
   minibase rm <应用名> [--yes]
   minibase versions|deployments <应用名>
   minibase cors add|list|rm <应用名> [域名|ID]
-  minibase token rotate`)
+  minibase token rotate
+  minibase version            显示客户端版本`)
 }
 
 func do(req *http.Request, token string) []byte {

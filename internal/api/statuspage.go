@@ -3,6 +3,9 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"strings"
+
+	"minibase/internal/deploy"
 )
 
 // statusPageHTML 极简状态页：纯 HTML + 少量 JS，数据从现有 API 读。
@@ -50,13 +53,18 @@ function load(){
   }).catch(()=>{});
 }
 </script>
+<!--CORE_VERSION-->
 </body>
 </html>`
 
 // handleStatusPage GET /status — 浏览器状态页，免 Token，页内输入 Token。
 func (s *Server) handleStatusPage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = fmt.Fprint(w, statusPageHTML)
+	page := strings.Replace(statusPageHTML, "<h1>MiniBase 状态页</h1>",
+		`<h1>MiniBase 状态页 <small id="core-version"></small></h1>`, 1)
+	page = strings.Replace(page, "<!--CORE_VERSION-->",
+		`<script>document.getElementById("core-version").textContent="`+deploy.CoreVersion+`"</script>`, 1)
+	_, _ = fmt.Fprint(w, page)
 }
 
 // handleAppsList GET /api/apps — 应用列表（需 Token）。

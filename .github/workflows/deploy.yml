@@ -9,12 +9,17 @@ concurrency:
   group: minibase-deploy-${{ github.ref }}
   cancel-in-progress: false
 
+permissions:
+  contents: write
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - name: 下载代码
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: 安装 Go
         uses: actions/setup-go@v5
@@ -38,11 +43,24 @@ jobs:
       - name: 跑 Go 测试
         run: go test ./...
 
+      - name: 计算版本号
+        id: version
+        run: |
+          VERSION=$(sh scripts/version.sh next)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+          echo "版本号: $VERSION"
+
       - name: 编译 Linux 二进制
         run: |
           mkdir -p build
-          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o build/minicore ./cmd/minicore
-          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o build/minibase ./cmd/minibase
+          LDFLAGS="-X main.version=${{ steps.version.outputs.version }}"
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o build/minicore ./cmd/minicore
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$LDFLAGS" -o build/minibase ./cmd/minibase
 
       - name: 配置 SSH 密钥
         run: |
@@ -60,6 +78,12 @@ jobs:
             root@183.87.150.56:"$REMOTE_DIR/"
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes root@183.87.150.56 \
             "chmod +x $REMOTE_DIR/upgrade.sh && $REMOTE_DIR/upgrade.sh $REMOTE_DIR/minicore $REMOTE_DIR/minibase; RC=\$?; rm -rf $REMOTE_DIR; exit \$RC"
+
+      - name: 推送版本 tag
+        if: steps.version.outputs.changed == 'true'
+        run: |
+          git tag "${{ steps.version.outputs.version }}"
+          git push origin "${{ steps.version.outputs.version }}"
 
       - name: 清理临时密钥
         if: always()

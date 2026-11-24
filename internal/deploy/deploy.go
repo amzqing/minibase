@@ -512,9 +512,12 @@ func (d *Deployer) Shutdown() {
 }
 
 // HealthHandler 给外部探活 Core 自己用，不需要 Token。
+// CoreVersion 由 cmd/minicore 在启动时注入，供 health 接口展示。
+var CoreVersion = "dev"
+
 func HealthHandler(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write([]byte(`{"status":"ok"}`))
+	_, _ = fmt.Fprintf(w, `{"status":"ok","version":%q}`, CoreVersion)
 }
 
 // readLogTail 读日志尾部，用于失败时给出清楚的错误原因。

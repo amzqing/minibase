@@ -23,7 +23,11 @@ import (
 	"minibase/internal/runtime"
 )
 
+// version 由编译期 -ldflags 注入；未注入时显示 dev。
+var version = "dev"
+
 func main() {
+	deploy.CoreVersion = version
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	configPath := flag.String("config", "config.json", "配置文件路径（JSON）")
 	flag.Parse()
